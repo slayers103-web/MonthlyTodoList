@@ -8,14 +8,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -34,6 +35,128 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MonthlyTodoScreen() {
+    val context = LocalContext.current
+    var currentYearMonth by remember { mutableStateOf(YearMonth.now()) }
+    var todoText by remember { mutableStateOf("") }
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    val todoList = remember { mutableStateListOf<String>() }
+
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { 
+                    Text(
+                        text = "To-Do List",
+                        textAlign = TextAlign.Center
+                    ) 
+                },
+                actions = {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "메뉴")
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("데이터 백업") },
+                            onClick = {
+                                menuExpanded = false
+                                Toast.makeText(context, "백업 기능이 실행됩니다.", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("데이터 복원") },
+                            onClick = {
+                                menuExpanded = false
+                                Toast.makeText(context, "복원 기능이 실행됩니다.", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp)
+        ) {
+            // 1. 월 변경 컨트롤
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { currentYearMonth = currentYearMonth.minusMonths(1) }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "이전 달")
+                }
+                
+                Text(
+                    text = currentYearMonth.format(DateTimeFormatter.ofPattern("yyyy년 MM월")),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                
+                IconButton(onClick = { currentYearMonth = currentYearMonth.plusMonths(1) }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "다음 달")
+                }
+            }
+
+            // 2. 입력창 & 추가 버튼
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = todoText,
+                    onValueChange = { todoText = it },
+                    label = { Text("항목 입력") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        if (todoText.isNotBlank()) {
+                            todoList.add(todoText)
+                            todoText = ""
+                        }
+                    }
+                ) {
+                    Text("추가")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 3. 할 일 목록 리스트
+            LazyColumn(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(todoList) { item ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = item,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
