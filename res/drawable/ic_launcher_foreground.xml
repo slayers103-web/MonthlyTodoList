@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- 원형 에메랄드 배경 -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M54,18 A36,36 0 1,1 53.99,18 Z" />
+        
+    <!-- 흰색 체크 마크 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46.5,63.5 L36.5,53.5 L33,57 L46.5,70.5 L75,42 L71.5,38.5 Z" />
+</vector>
