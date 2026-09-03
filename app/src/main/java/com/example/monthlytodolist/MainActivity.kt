@@ -1,29 +1,24 @@
 package com.example.monthlytodolist
 
-import android.content.Context
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
-import java.util.Calendar
-
-data class TodoItem(
-    val id: Int,
-    val text: String,
-    val isDone: Boolean = false
-)
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,6 +29,130 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
+                    MonthlyTodoScreen()
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MonthlyTodoScreen() {
+    val context = LocalContext.current
+    var currentYearMonth by remember { mutableStateOf(YearMonth.now()) }
+    var todoText by remember { mutableStateOf("") }
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    // 월별 할 일 목록 데이터 (실제 저장 로직 연결 전 임시 상태)
+    val todoList = remember { mutableStateListOf<String>() }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(text = "매월 반복 To-Do List") },
+                actions = {
+                    // 백업 / 복원 더보기 메뉴
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "메뉴")
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("데이터 백업") },
+                            onClick = {
+                                menuExpanded = false
+                                Toast.makeText(context, "백업 기능이 실행됩니다.", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("데이터 복원") },
+                            onClick = {
+                                menuExpanded = false
+                                Toast.makeText(context, "복원 기능이 실행됩니다.", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp)
+        ) {
+            // 1. 상단 월 변경 컨트롤 (이전달 / YYYY년 MM월 / 다음달)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { currentYearMonth = currentYearMonth.minusMonths(1) }) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "이전 달")
+                }
+                
+                Text(
+                    text = currentYearMonth.format(DateTimeFormatter.ofPattern("yyyy년 MM월")),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                
+                IconButton(onClick = { currentYearMonth = currentYearMonth.plusMonths(1) }) {
+                    Icon(Icons.Default.ArrowForward, contentDescription = "다음 달")
+                }
+            }
+
+            // 2. 할 일 입력창 & 추가 버튼
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = todoText,
+                    onValueChange = { todoText = it },
+                    label = { Text("매월 할 일 입력") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        if (todoText.isNotBlank()) {
+                            todoList.add(todoText)
+                            todoText = ""
+                        }
+                    }
+                ) {
+                    Text("추가")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 3. 할 일 목록 리스트
+            LazyColumn(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(todoList) { item ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = item,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
                     MonthlyTodoScreen()
                 }
             }
