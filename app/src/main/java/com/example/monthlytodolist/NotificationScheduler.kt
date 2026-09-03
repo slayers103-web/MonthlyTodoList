@@ -4,64 +4,68 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import java.util.*
+import android.os.Build
+import java.time.YearMonth
+import java.time.ZoneId
+import java.util.Calendar
 
 object NotificationScheduler {
+    private const val REQUEST_BASE = 4100
+    private val daysBefore = intArrayOf(7, 3, 1)
 
     fun scheduleMonthlyAlarms(context: Context) {
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val daysBefore = listOf(7, 3, 1)
-
+        val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
         val now = Calendar.getInstance()
-        val currentYear = now.get(Calendar.YEAR)
-        val currentMonth = now.get(Calendar.MONTH)
+        var month = YearMonth.of(now.get(Calendar.YEAR), now.get(Calendar.MONTH) + 1)
 
-        val lastDayCal = Calendar.getInstance().apply {
-            set(Calendar.YEAR, currentYear)
-            set(Calendar.MONTH, currentMonth)
-            set(Calendar.DAY_OF_MONTH, getActualMaximum(Calendar.DAY_OF_MONTH))
+        // Always schedule the current month's future reminders and next month's reminders.
+        for (monthOffset in 0..1) {
+            scheduleForMonth(context, alarmManager, month.plusMonths(monthOffset.toLong()))
         }
-        val lastDay = lastDayCal.get(Calendar.DAY_OF_MONTH)
+    }
 
-        daysBefore.forEachIndexed { index, days ->
-            val targetDay = lastDay - days + 1
-            val alarmCal = Calendar.getInstance().apply {
-                set(Calendar.YEAR, currentYear)
-                set(Calendar.MONTH, currentMonth)
-                set(Calendar.DAY_OF_MONTH, targetDay)
-                set(Calendar.HOUR_OF_DAY, 12)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
-
-            if (alarmCal.before(now)) {
-                alarmCal.add(Calendar.MONTH, 1)
-                val newLastDay = alarmCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                alarmCal.set(Calendar.DAY_OF_MONTH, newLastDay - days + 1)
-            }
-
+    fun cancelAll(context: Context) {
+        val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
+        daysBefore.forEachIndexed { index, _ ->
             val intent = Intent(context, TodoNotificationReceiver::class.java)
-            val pendingIntent = PendingIntent.getBroadcast(
+            val pi = PendingIntent.getBroadcast(
                 context,
-                index,
+                REQUEST_BASE + index,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
+            alarmManager.cancel(pi)
+        }
+    }
 
+    private fun scheduleForMonth(context: Context, alarmManager: AlarmManager, month: YearMonth) {
+        daysBefore.forEachIndexed { index, days ->
+            val day = month.lengthOfMonth() - days + 1
+            val trigger = month.atDay(day).atTime(12, 0)
+                .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            if (trigger <= System.currentTimeMillis()) return@forEachIndexed
+
+            val intent = Intent(context, TodoNotificationReceiver::class.java).apply {
+                putExtra(TodoNotificationReceiver.EXTRA_YEAR, month.year)
+                putExtra(TodoNotificationReceiver.EXTRA_MONTH, month.monthValue)
+            }
+            val pi = PendingIntent.getBroadcast(
+                context,
+                REQUEST_BASE + monthOffsetId(month) * 10 + index,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
             try {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    alarmCal.timeInMillis,
-                    pendingIntent
-                )
-            } catch (e: SecurityException) {
-                alarmManager.set(
-                    AlarmManager.RTC_WAKEUP,
-                    alarmCal.timeInMillis,
-                    pendingIntent
-                )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pi)
+                } else {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pi)
+                }
+            } catch (_: SecurityException) {
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pi)
             }
         }
     }
+
+    private fun monthOffsetId(month: YearMonth): Int = month.year * 12 + month.monthValue
 }

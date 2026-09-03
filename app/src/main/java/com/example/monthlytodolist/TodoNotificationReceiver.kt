@@ -7,52 +7,49 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import org.json.JSONArray
-import java.text.SimpleDateFormat
-import java.util.*
+import java.time.YearMonth
 
 class TodoNotificationReceiver : BroadcastReceiver() {
-
     override fun onReceive(context: Context, intent: Intent) {
-        val pref = context.getSharedPreferences("MonthlyHistoryPref", Context.MODE_PRIVATE)
-        val currentMonth = SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(Date())
-        
-        val jsonString = pref.getString("data_$currentMonth", null) ?: return
-        
-        var uncompletedCount = 0
-        val jsonArray = JSONArray(jsonString)
-        for (i in 0 until jsonArray.length()) {
-            val obj = jsonArray.getJSONObject(i)
-            if (!obj.getBoolean("isDone")) uncompletedCount++
-        }
+        val month = if (intent.hasExtra(EXTRA_YEAR) && intent.hasExtra(EXTRA_MONTH)) {
+            YearMonth.of(intent.getIntExtra(EXTRA_YEAR, 0), intent.getIntExtra(EXTRA_MONTH, 0))
+        } else YearMonth.now()
 
-        if (uncompletedCount > 0) {
-            showNotification(context, uncompletedCount)
+        val repository = TodoRepository(context)
+        val todos = repository.getTodos()
+        val remaining = todos.count { !repository.isDone(month, it.id) }
+
+        if (remaining > 0 && notificationsAllowed(context)) {
+            showNotification(context, remaining, month)
         }
-        
         NotificationScheduler.scheduleMonthlyAlarms(context)
     }
 
-    private fun showNotification(context: Context, uncompletedCount: Int) {
+    private fun notificationsAllowed(context: Context): Boolean =
+        Build.VERSION.SDK_INT < 33 ||
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    private fun showNotification(context: Context, count: Int, month: YearMonth) {
         val channelId = "monthly_todo_channel"
-        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
+        val manager = context.getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId,
-                "이달의 할 일 알림",
-                NotificationManager.IMPORTANCE_DEFAULT
+            manager.createNotificationChannel(
+                NotificationChannel(channelId, "매월 할 일 알림", NotificationManager.IMPORTANCE_DEFAULT)
             )
-            notificationManager.createNotificationChannel(channel)
         }
-
-        val builder = NotificationCompat.Builder(context, channelId)
+        val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("이달의 할 일 점검")
-            .setContentText("이번 달 미완료된 할 일이 ${uncompletedCount}개 있습니다.")
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentTitle("${month.monthValue}월 할 일 점검")
+            .setContentText("아직 완료하지 않은 할 일이 ${count}개 있습니다.")
             .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        manager.notify(1001, notification)
+    }
 
-        notificationManager.notify(1001, builder.build())
+    companion object {
+        const val EXTRA_YEAR = "year"
+        const val EXTRA_MONTH = "month"
     }
 }
