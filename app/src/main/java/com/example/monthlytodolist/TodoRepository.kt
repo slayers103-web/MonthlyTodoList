@@ -7,80 +7,66 @@ import java.time.YearMonth
 import java.util.UUID
 
 /**
- * Monthly data model:
- * - Past months are snapshots and are read-only in the UI.
- * - Current/future months are editable.
- * - When a month is first created, it inherits the previous month's final list.
- * - A task added in the current month therefore appears in the next month,
- *   while it never appears in already-finished months.
+ * Stores an independent snapshot for each month.
+ *
+ * Rules:
+ * - Past months are immutable snapshots.
+ * - The current month can be edited.
+ * - When a new month begins, its initial list is copied from the previous
+ *   month's final list. The previous month is never modified afterwards.
+ * - A task created in the current month can therefore appear next month,
+ *   but can never be retroactively inserted into an older month.
  */
 class TodoRepository(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val gson = Gson()
 
+    /** Advances monthly snapshots when the calendar month changes. */
     fun prepareMonths(today: YearMonth = YearMonth.now()) {
         val records = getMonthRecords().toMutableMap()
-        val legacyTodos = load<List<LegacyTodo>>(KEY_TODOS) ?: emptyList()
-        val lastActive = prefs.getString(KEY_LAST_ACTIVE_MONTH, null)?.let { runCatching { YearMonth.parse(it) }.getOrNull() }
+        val lastActive = prefs.getString(KEY_LAST_ACTIVE_MONTH, null)
+            ?.let { runCatching { YearMonth.parse(it) }.getOrNull() }
 
         if (records.isEmpty()) {
-            val seed = legacyTodos.map {
-                TodoItem(
-                    id = it.id.ifBlank { UUID.randomUUID().toString() },
-                    text = it.text.trim(),
-                    createdMonth = today.toString()
-                )
-            }.filter { it.text.isNotBlank() }
-
-            // Migrate the previous v2 format without throwing away its historical
-            // completion information. The old format did not know when an item was
-            // created, so legacy items are treated as existing for months that already
-            // had completion data; new items created after this upgrade use createdMonth.
-            val legacyCompletions = load<Map<String, Boolean>>(KEY_COMPLETIONS) ?: emptyMap()
-            legacyCompletions.keys.mapNotNull { key -> key.substringBefore('|').let { runCatching { YearMonth.parse(it) }.getOrNull() } }
-                .distinct()
-                .forEach { legacyMonth ->
-                    records[legacyMonth.toString()] = MonthRecord(
-                        items = seed.map { it.copy(createdMonth = legacyMonth.toString()) },
-                        completedIds = legacyCompletions
-                            .filterKeys { it.startsWith("$legacyMonth|") }
-                            .filterValues { it }
-                            .keys
-                            .map { it.substringAfter('|') }
-                            .toSet()
-                    )
-                }
-            records[today.toString()] = records[today.toString()] ?: MonthRecord(seed, emptySet())
-        } else if (!records.containsKey(today.toString())) {
-            val start = lastActive ?: records.keys.mapNotNull { runCatching { YearMonth.parse(it) }.getOrNull() }.maxOrNull()
-            var previous = start?.let { records[it.toString()] }
-            if (start != null && start < today) {
-                var cursor = start.plusMonths(1)
-                while (cursor <= today) {
-                    val copied = MonthRecord(previous?.items.orEmpty(), emptySet())
-                    records[cursor.toString()] = copied
-                    previous = copied
-                    cursor = cursor.plusMonths(1)
-                }
-            } else {
-                records[today.toString()] = MonthRecord(previous?.items.orEmpty(), emptySet())
-            }
+            migrateLegacy(records, today)
         }
 
-        // Ensure every month between the earliest known month and today has a snapshot.
-        val earliest = records.keys.mapNotNull { runCatching { YearMonth.parse(it) }.getOrNull() }.minOrNull()
-        if (earliest != null) {
-            var cursor = earliest
-            var previous = records[cursor.toString()]
-            while (cursor < today) {
-                val next = cursor.plusMonths(1)
-                if (!records.containsKey(next.toString())) {
-                    val copied = MonthRecord(previous?.items.orEmpty(), emptySet())
-                    records[next.toString()] = copied
+        if (records.isEmpty()) {
+            records[today.toString()] = MonthRecord()
+        }
+
+        val knownLatest = records.keys
+            .mapNotNull { runCatching { YearMonth.parse(it) }.getOrNull() }
+            .maxOrNull()
+
+        // If the app was not opened for one or more month changes, create each
+        // missing month from the immediately preceding month's final snapshot.
+        val startMonth = lastActive ?: knownLatest
+        if (startMonth != null && startMonth < today) {
+            var cursor: YearMonth = startMonth.plusMonths(1)
+            var previous = records[startMonth.toString()]
+            while (cursor <= today) {
+                if (!records.containsKey(cursor.toString())) {
+                    val copied = MonthRecord(
+                        items = previous?.items.orEmpty(),
+                        completedIds = emptySet()
+                    )
+                    records[cursor.toString()] = copied
+                    previous = copied
+                } else {
+                    previous = records[cursor.toString()]
                 }
-                previous = records[next.toString()]
-                cursor = next
+                cursor = cursor.plusMonths(1)
             }
+        } else if (!records.containsKey(today.toString())) {
+            val previousMonth = records.keys
+                .mapNotNull { runCatching { YearMonth.parse(it) }.getOrNull() }
+                .filter { it < today }
+                .maxOrNull()
+            records[today.toString()] = MonthRecord(
+                items = previousMonth?.let { records[it.toString()]?.items }.orEmpty(),
+                completedIds = emptySet()
+            )
         }
 
         saveMonthRecords(records)
@@ -90,30 +76,36 @@ class TodoRepository(context: Context) {
     fun getTodos(): List<TodoItem> = getMonthItems(YearMonth.now())
 
     fun getMonthItems(month: YearMonth): List<TodoItem> {
-        ensureMonth(month)
+        prepareMonths()
         return getMonthRecords()[month.toString()]?.items.orEmpty()
     }
 
     fun addTodo(month: YearMonth, text: String): TodoItem {
         require(isEditableMonth(month)) { "지난 달의 데이터는 수정할 수 없습니다." }
-        val item = TodoItem(UUID.randomUUID().toString(), text.trim(), month.toString())
+        val clean = text.trim()
+        require(clean.isNotBlank()) { "체크 항목을 입력해 주세요." }
+        val item = TodoItem(UUID.randomUUID().toString(), clean, month.toString())
         updateMonth(month) { it.copy(items = it.items + item) }
-        propagateCurrentMonth(month)
         return item
     }
 
     fun updateTodo(month: YearMonth, id: String, text: String) {
         require(isEditableMonth(month)) { "지난 달의 데이터는 수정할 수 없습니다." }
-        updateMonth(month) { record -> record.copy(items = record.items.map { if (it.id == id) it.copy(text = text.trim()) else it }) }
-        propagateCurrentMonth(month)
+        val clean = text.trim()
+        require(clean.isNotBlank()) { "체크 항목을 입력해 주세요." }
+        updateMonth(month) { record ->
+            record.copy(items = record.items.map { if (it.id == id) it.copy(text = clean) else it })
+        }
     }
 
     fun deleteTodo(month: YearMonth, id: String) {
         require(isEditableMonth(month)) { "지난 달의 데이터는 수정할 수 없습니다." }
         updateMonth(month) { record ->
-            record.copy(items = record.items.filterNot { it.id == id }, completedIds = record.completedIds - id)
+            record.copy(
+                items = record.items.filterNot { it.id == id },
+                completedIds = record.completedIds - id
+            )
         }
-        propagateCurrentMonth(month)
     }
 
     fun isDone(month: YearMonth, todoId: String): Boolean =
@@ -122,7 +114,10 @@ class TodoRepository(context: Context) {
     fun setDone(month: YearMonth, todoId: String, done: Boolean) {
         require(isEditableMonth(month)) { "지난 달의 데이터는 수정할 수 없습니다." }
         updateMonth(month) { record ->
-            record.copy(completedIds = if (done) record.completedIds + todoId else record.completedIds - todoId)
+            record.copy(
+                completedIds = if (done) record.completedIds + todoId
+                else record.completedIds - todoId
+            )
         }
     }
 
@@ -134,53 +129,74 @@ class TodoRepository(context: Context) {
         val backup = gson.fromJson(json, BackupDataV2::class.java)
             ?: error("백업 데이터가 비어 있습니다.")
         require(backup.version == 2) { "지원하지 않는 백업 버전입니다." }
-        backup.months.values.forEach { record ->
+        backup.months.forEach { (monthKey, record) ->
+            require(runCatching { YearMonth.parse(monthKey) }.isSuccess) {
+                "백업 데이터의 월 정보가 올바르지 않습니다."
+            }
             require(record.items.all { it.id.isNotBlank() && it.text.isNotBlank() }) {
-                "백업 데이터의 할 일이 올바르지 않습니다."
+                "백업 데이터의 체크 항목이 올바르지 않습니다."
             }
         }
         saveMonthRecords(backup.months)
+        prefs.edit().putString(KEY_LAST_ACTIVE_MONTH, YearMonth.now().toString()).apply()
         prepareMonths()
     }
 
-    private fun propagateCurrentMonth(month: YearMonth) {
-        val today = YearMonth.now()
-        if (month != today) return
-        val current = getMonthRecords()[month.toString()] ?: return
-        val records = getMonthRecords().toMutableMap()
-        records.keys.mapNotNull { runCatching { YearMonth.parse(it) }.getOrNull() }
-            .filter { it > month }
-            .forEach { future ->
-                val old = records[future.toString()] ?: return@forEach
-                // Carry the current month's final task list forward while preserving
-                // the future month's own completion state.
-                val validCompleted = old.completedIds.intersect(current.items.map { it.id }.toSet())
-                records[future.toString()] = old.copy(items = current.items, completedIds = validCompleted)
-            }
-        saveMonthRecords(records)
-    }
+    /** Converts the old v2 global todo/completion storage into monthly snapshots. */
+    private fun migrateLegacy(records: MutableMap<String, MonthRecord>, today: YearMonth) {
+        val legacyTodos = load<List<LegacyTodo>>(KEY_TODOS).orEmpty()
+        if (legacyTodos.isEmpty()) return
 
-    private fun ensureMonth(month: YearMonth) {
-        val records = getMonthRecords().toMutableMap()
-        if (records.containsKey(month.toString())) return
-        val previous = records.keys.mapNotNull { runCatching { YearMonth.parse(it) }.getOrNull() }
-            .filter { it < month }
-            .maxOrNull()
-            ?.let { records[it.toString()] }
-        records[month.toString()] = MonthRecord(previous?.items.orEmpty(), emptySet())
-        saveMonthRecords(records)
+        val legacyItems = legacyTodos.map {
+            TodoItem(
+                id = it.id.ifBlank { UUID.randomUUID().toString() },
+                text = it.text.trim(),
+                createdMonth = today.toString()
+            )
+        }.filter { it.text.isNotBlank() }
+
+        val legacyCompletions = load<Map<String, Boolean>>("completions").orEmpty()
+        val legacyMonths = legacyCompletions.keys.mapNotNull { key ->
+            key.substringBefore('|').let { runCatching { YearMonth.parse(it) }.getOrNull() }
+        }.distinct().sorted()
+
+        // Old storage had no creation-month information. For months that have
+        // historical completion data, preserve the old list as a snapshot.
+        legacyMonths.forEach { month ->
+            val completed = legacyCompletions
+                .filterKeys { it.startsWith("$month|") }
+                .filterValues { it }
+                .keys
+                .map { it.substringAfter('|') }
+                .toSet()
+            records[month.toString()] = MonthRecord(
+                items = legacyItems.map { it.copy(createdMonth = month.toString()) },
+                completedIds = completed
+            )
+        }
+
+        if (!records.containsKey(today.toString())) {
+            val previous = records.keys
+                .mapNotNull { runCatching { YearMonth.parse(it) }.getOrNull() }
+                .filter { it < today }
+                .maxOrNull()
+            records[today.toString()] = MonthRecord(
+                items = previous?.let { records[it.toString()]?.items } ?: legacyItems,
+                completedIds = emptySet()
+            )
+        }
     }
 
     private fun updateMonth(month: YearMonth, transform: (MonthRecord) -> MonthRecord) {
-        ensureMonth(month)
         val records = getMonthRecords().toMutableMap()
         val key = month.toString()
-        records[key] = transform(records[key] ?: MonthRecord())
+        val current = records[key] ?: MonthRecord()
+        records[key] = transform(current)
         saveMonthRecords(records)
     }
 
     private fun getMonthRecords(): Map<String, MonthRecord> =
-        load<Map<String, MonthRecord>>(KEY_MONTHS) ?: emptyMap()
+        load<Map<String, MonthRecord>>(KEY_MONTHS).orEmpty()
 
     private fun saveMonthRecords(values: Map<String, MonthRecord>) {
         prefs.edit().putString(KEY_MONTHS, gson.toJson(values)).apply()
@@ -188,12 +204,15 @@ class TodoRepository(context: Context) {
 
     private inline fun <reified T> load(key: String): T? {
         val json = prefs.getString(key, null) ?: return null
-        return runCatching { gson.fromJson<T>(json, object : TypeToken<T>() {}.type) }.getOrNull()
+        return runCatching {
+            gson.fromJson<T>(json, object : TypeToken<T>() {}.type)
+        }.getOrNull()
     }
 
     companion object {
         const val PREFS = "monthly_todo_store"
         const val KEY_TODOS = "todos"
+        const val KEY_COMPLETIONS = "completions"
         private const val KEY_MONTHS = "month_records"
         private const val KEY_LAST_ACTIVE_MONTH = "last_active_month"
     }
