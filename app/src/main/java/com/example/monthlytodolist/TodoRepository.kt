@@ -43,7 +43,7 @@ class TodoRepository(context: Context) {
         saveCompletions(completions)
     }
 
-    fun buildBackup(): String = gson.toJson(BackupData(getTodos(), getCompletions()))
+    fun buildBackup(): String = gson.toJson(BackupData(todos = getTodos(), completions = getCompletions()))
 
     fun restoreBackup(json: String): Result<Unit> = runCatching {
         val backup = gson.fromJson(json, BackupData::class.java)
