@@ -39,7 +39,7 @@ class TodoNotificationReceiver : BroadcastReceiver() {
             )
         }
         val notification = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_notification_check)
             .setContentTitle("${month.monthValue}월 할 일 점검")
             .setContentText("아직 완료하지 않은 할 일이 ${count}개 있습니다.")
             .setAutoCancel(true)

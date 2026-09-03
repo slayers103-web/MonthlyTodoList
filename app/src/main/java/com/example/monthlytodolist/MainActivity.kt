@@ -1,8 +1,6 @@
 package com.example.monthlytodolist
 
 import android.Manifest
-import android.app.Activity
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -15,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,32 +23,39 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.Backup
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,7 +65,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -70,9 +75,17 @@ import java.util.Locale
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        TodoRepository(this).prepareMonths()
         NotificationScheduler.scheduleMonthlyAlarms(this)
         setContent {
-            MaterialTheme {
+            MaterialTheme(
+                colorScheme = lightColorScheme(
+                    primary = Color(0xFF00897B),
+                    onPrimary = Color.White,
+                    primaryContainer = Color(0xFFB2DFDB),
+                    secondary = Color(0xFF00695C)
+                )
+            ) {
                 Surface(Modifier.fillMaxSize()) { MonthlyTodoScreen() }
             }
         }
@@ -82,22 +95,31 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MonthlyTodoScreen() {
-    val context = LocalContext.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     val repository = remember { TodoRepository(context) }
-    var currentMonth by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
-    var todos by remember { mutableStateOf(repository.getTodos()) }
+    var currentMonthText by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
+    val month = YearMonth.parse(currentMonthText)
+    val today = YearMonth.now()
+    val editable = repository.isEditableMonth(month, today)
+    var todos by remember { mutableStateOf(repository.getMonthItems(month)) }
     var refresh by remember { mutableStateOf(0) }
     var input by rememberSaveable { mutableStateOf("") }
     var menuExpanded by remember { mutableStateOf(false) }
     var editingTodo by remember { mutableStateOf<TodoItem?>(null) }
     var showNotificationHelp by remember { mutableStateOf(false) }
+    var showInfo by remember { mutableStateOf(false) }
 
-    val month = YearMonth.parse(currentMonth)
-    val formatter = remember { DateTimeFormatter.ofPattern("yyyy년 MM월", Locale.KOREAN) }
+    val formatter = remember { DateTimeFormatter.ofPattern("yyyy년 M월", Locale.KOREAN) }
 
     fun reload() {
-        todos = repository.getTodos()
+        todos = repository.getMonthItems(month)
         refresh++
+    }
+
+    LaunchedEffect(month, refresh) {
+        repository.prepareMonths()
+        todos = repository.getMonthItems(month)
+        NotificationScheduler.scheduleMonthlyAlarms(context)
     }
 
     val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
@@ -123,125 +145,173 @@ fun MonthlyTodoScreen() {
         }
     }
 
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         Toast.makeText(context, if (granted) "알림 권한이 허용되었습니다." else "알림 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
-    }
-
-    LaunchedEffect(refresh) {
-        NotificationScheduler.scheduleMonthlyAlarms(context)
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("매월 할 일") },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                title = { Text("Monthly To-Do-List") },
                 actions = {
-                    IconButton(onClick = { menuExpanded = true }) {
-                        Icon(Icons.Default.MoreVert, "메뉴")
+                    IconButton(onClick = { backupLauncher.launch("mtdl_backup.json") }) {
+                        Icon(Icons.Default.Download, contentDescription = "데이터 백업")
                     }
-                    DropdownMenu(menuExpanded, { menuExpanded = false }) {
-                        DropdownMenuItem(
-                            text = { Text("데이터 백업") },
-                            leadingIcon = { Icon(Icons.Default.Backup, null) },
-                            onClick = {
-                                menuExpanded = false
-                                backupLauncher.launch("monthly-todo-backup.json")
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("데이터 복원") },
-                            leadingIcon = { Icon(Icons.Default.Backup, null) },
-                            onClick = {
-                                menuExpanded = false
-                                restoreLauncher.launch(arrayOf("application/json", "text/*"))
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("알림 권한 설정") },
-                            leadingIcon = { Icon(Icons.Default.Notifications, null) },
-                            onClick = {
-                                menuExpanded = false
-                                if (Build.VERSION.SDK_INT >= 33) {
-                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    IconButton(onClick = { restoreLauncher.launch(arrayOf("application/json", "text/*")) }) {
+                        Icon(Icons.Default.Upload, contentDescription = "데이터 복원")
+                    }
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "메뉴")
+                        }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("알림 권한 설정") },
+                                leadingIcon = { Icon(Icons.Default.Notifications, null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    if (Build.VERSION.SDK_INT >= 33 &&
+                                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                    ) {
                                         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                    } else showNotificationHelp = true
-                                } else showNotificationHelp = true
-                            }
-                        )
+                                    } else {
+                                        showNotificationHelp = true
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("앱 정보") },
+                                leadingIcon = { Icon(Icons.Default.Info, null) },
+                                onClick = { menuExpanded = false; showInfo = true }
+                            )
+                        }
                     }
                 }
             )
         }
     ) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp, vertical = 8.dp)
+            Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             Row(
-                Modifier.fillMaxWidth(),
+                Modifier.fillMaxWidth().padding(bottom = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = { currentMonth = month.minusMonths(1).toString() }) {
+                IconButton(onClick = { currentMonthText = month.minusMonths(1).toString() }) {
                     Icon(Icons.Default.ArrowBack, "이전 달")
                 }
                 Text(month.format(formatter), style = MaterialTheme.typography.titleLarge)
-                IconButton(onClick = { currentMonth = month.plusMonths(1).toString() }) {
+                IconButton(onClick = { currentMonthText = month.plusMonths(1).toString() }) {
                     Icon(Icons.Default.ArrowForward, "다음 달")
                 }
             }
 
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    label = { Text("매월 반복할 할 일") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(Modifier.padding(4.dp))
-                Button(
-                    onClick = {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("매월 체크 항목", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                if (editable) {
+                    IconButton(onClick = {
                         if (input.isNotBlank()) {
-                            repository.addTodo(input)
+                            repository.addTodo(month, input)
                             input = ""
                             reload()
                         }
-                    }
-                ) { Icon(Icons.Default.Add, null); Text("추가") }
+                    }) { Icon(Icons.Default.Add, "항목 추가") }
+                } else {
+                    Icon(Icons.Default.Lock, "지난 달", modifier = Modifier.padding(end = 8.dp))
+                }
             }
 
-            Spacer(Modifier.height(12.dp))
-            val completed = todos.count { repository.isDone(month, it.id) }
-            Text("${completed} / ${todos.size} 완료", style = MaterialTheme.typography.labelLarge)
-            Spacer(Modifier.height(8.dp))
+            if (editable) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    placeholder = { Text("체크할 항목을 입력하세요") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = {
+                        if (input.isNotBlank()) {
+                            Button(onClick = { repository.addTodo(month, input); input = ""; reload() }) {
+                                Text("추가")
+                            }
+                        }
+                    }
+                )
+                Spacer(Modifier.height(10.dp))
+            }
 
-            LazyColumn(Modifier.fillMaxSize()) {
-                items(todos, key = { it.id }) { todo ->
-                    val done = repository.isDone(month, todo.id)
-                    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = done,
-                                onCheckedChange = { checked ->
-                                    repository.setDone(month, todo.id, checked)
-                                    refresh++
+            val completed = todos.count { repository.isDone(month, it.id) }
+            Text("$completed / ${todos.size} 완료", style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.height(6.dp))
+
+            if (todos.isEmpty()) {
+                Card(
+                    Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Text(
+                        if (editable) "아직 체크 항목이 없습니다.\n위 입력창에서 항목을 추가해 보세요."
+                        else "이 달에는 저장된 체크 항목이 없습니다.",
+                        Modifier.padding(18.dp)
+                    )
+                }
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(todos, key = { it.id }) { todo ->
+                        val done = repository.isDone(month, todo.id)
+                        Card(
+                            Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = done,
+                                    enabled = editable,
+                                    onCheckedChange = { checked -> repository.setDone(month, todo.id, checked); reload() }
+                                )
+                                Text(
+                                    todo.text,
+                                    Modifier.weight(1f).padding(horizontal = 6.dp),
+                                    textDecoration = if (done) TextDecoration.LineThrough else TextDecoration.None,
+                                    color = if (editable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (editable) {
+                                    IconButton(onClick = { editingTodo = todo }) { Icon(Icons.Default.Edit, "수정") }
+                                    IconButton(onClick = { repository.deleteTodo(month, todo.id); reload() }) {
+                                        Icon(Icons.Default.Delete, "삭제")
+                                    }
+                                } else {
+                                    Icon(Icons.Default.Lock, "과거 데이터", modifier = Modifier.padding(horizontal = 12.dp))
                                 }
-                            )
-                            Text(
-                                todo.text,
-                                Modifier.weight(1f).padding(horizontal = 8.dp),
-                                textDecoration = if (done) TextDecoration.LineThrough else TextDecoration.None
-                            )
-                            IconButton(onClick = { editingTodo = todo }) { Icon(Icons.Default.Edit, "수정") }
-                            IconButton(onClick = { repository.deleteTodo(todo.id); reload() }) {
-                                Icon(Icons.Default.Delete, "삭제")
                             }
                         }
                     }
                 }
             }
+
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (editable) "추가·수정한 항목은 다음 달에도 이어집니다."
+                else "지난 달은 당시 저장된 목록과 완료 상태만 확인할 수 있습니다.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+            )
         }
     }
 
@@ -250,7 +320,7 @@ fun MonthlyTodoScreen() {
             initial = todo.text,
             onDismiss = { editingTodo = null },
             onSave = { newText ->
-                repository.updateTodo(todo.id, newText)
+                repository.updateTodo(month, todo.id, newText)
                 editingTodo = null
                 reload()
             }
@@ -273,6 +343,17 @@ fun MonthlyTodoScreen() {
             dismissButton = { TextButton(onClick = { showNotificationHelp = false }) { Text("닫기") } }
         )
     }
+
+    if (showInfo) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text("MTDL") },
+            text = {
+                Text("Monthly To-Do-List\n\n매월 반복되는 체크 항목을 관리하고 완료 상태를 기록합니다.\n\n• 월별 데이터 자동 이어받기\n• 지난 달 기록 보존\n• 데이터 백업 및 복원")
+            },
+            confirmButton = { TextButton(onClick = { showInfo = false }) { Text("확인") } }
+        )
+    }
 }
 
 @Composable
@@ -280,9 +361,9 @@ private fun EditTodoDialog(initial: String, onDismiss: () -> Unit, onSave: (Stri
     var text by rememberSaveable(initial) { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("할 일 수정") },
-        text = { OutlinedTextField(text, { text = it }, label = { Text("할 일") }, singleLine = true) },
-        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onSave(text) }) { Text("저장") } },
+        title = { Text("체크 항목 수정") },
+        text = { OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("항목명") }, singleLine = true) },
+        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onSave(text.trim()) }) { Text("저장") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } }
     )
 }
