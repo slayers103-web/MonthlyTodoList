@@ -41,7 +41,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.animateItemPlacement
+import androidx.compose.foundation.lazy.animateItem
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -614,7 +614,7 @@ private fun ReorderableTodoRow(
     val canCheck = todo.number1 == null
     Card(
         Modifier.fillMaxWidth().padding(vertical = (3f * scale).dp)
-            .animateItemPlacement()
+            .animateItem()
             .clickable(enabled = selectionMode != null) { onSelect() }
             .onGloballyPositioned { onBoundsChanged(it.boundsInParent()) }
             .graphicsLayer { translationY = if (isDragging) dragOffset else 0f }
