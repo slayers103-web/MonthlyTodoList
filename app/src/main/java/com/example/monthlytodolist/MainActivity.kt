@@ -14,6 +14,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -44,6 +45,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -172,6 +174,17 @@ fun MonthlyTodoScreen() {
         ).show()
     }
 
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -278,7 +291,7 @@ fun MonthlyTodoScreen() {
                 )
             }
 
-            if (editable) {
+            if (editable && todos.isEmpty()) {
                 Text(
                     "오른쪽 아래 + 버튼으로 체크 항목을 추가할 수 있습니다.",
                     style = MaterialTheme.typography.bodySmall,
@@ -337,7 +350,18 @@ fun MonthlyTodoScreen() {
                                 )
                                 Text(
                                     todo.text,
-                                    Modifier.weight(1f).padding(horizontal = 6.dp),
+                                    Modifier
+                                        .weight(1f)
+                                        .clickable(enabled = editable) {
+                                            repository.setDone(
+                                                month,
+                                                todo.id,
+                                                !done,
+                                                allowHistoricalEdit = historicalUnlocked
+                                            )
+                                            reload()
+                                        }
+                                        .padding(horizontal = 6.dp),
                                     textDecoration = if (done) {
                                         TextDecoration.LineThrough
                                     } else {
@@ -388,7 +412,7 @@ fun MonthlyTodoScreen() {
         }
 
         if (month < today) {
-            IconButton(
+            SmallFloatingActionButton(
                 onClick = {
                     if (historicalUnlocked) {
                         historicalUnlocked = false
@@ -398,12 +422,13 @@ fun MonthlyTodoScreen() {
                 },
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(20.dp)
+                    .padding(20.dp),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
             ) {
                 Icon(
                     if (historicalUnlocked) Icons.Default.LockOpen else Icons.Default.Lock,
-                    contentDescription = if (historicalUnlocked) "다시 잠그기" else "잠금 해제",
-                    tint = if (historicalUnlocked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    contentDescription = if (historicalUnlocked) "다시 잠그기" else "잠금 해제"
                 )
             }
         }
