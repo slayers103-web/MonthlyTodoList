@@ -40,6 +40,10 @@ class TodoRepository(context: Context) {
             } else target ?: MonthRecord()
         }
 
+        // 필요 숫자가 있는 항목은 필요/완료 숫자 비교 결과를 완료 상태의 단일 기준으로 사용합니다.
+        records.keys.toList().forEach { key ->
+            records[key] = syncAllNumberBasedCompletion(records[key] ?: MonthRecord())
+        }
         saveMonthRecords(records)
         prefs.edit().putString(KEY_LAST_ACTIVE_MONTH, today.toString()).apply()
     }
@@ -74,13 +78,23 @@ class TodoRepository(context: Context) {
         require(clean.isNotBlank()) { "체크 항목을 입력해 주세요." }
         updateMonth(month) { record ->
             val updated = record.items.map { if (it.id == id) it.copy(text = clean, priority = priority, number1 = number1) else it }
-            record.copy(items = orderItemsForSection(updated, record.completedIds, id, uncheckNewToTop = false))
+            syncNumberBasedCompletion(
+                record.copy(items = orderItemsForSection(updated, record.completedIds, id, uncheckNewToTop = false)),
+                id
+            )
         }
     }
 
     fun updateNumber(month: YearMonth, id: String, numberSlot: Int, number: Int?, allowHistoricalEdit: Boolean = false) {
         require(isEditableMonth(month) || allowHistoricalEdit) { "지난 달의 데이터는 수정할 수 없습니다." }
-        updateMonth(month) { record -> record.copy(items = record.items.map { if (it.id == id) if (numberSlot == 1) it.copy(number1 = number) else it.copy(number2 = number) else it }) }
+        updateMonth(month) { record ->
+            val updated = record.items.map {
+                if (it.id == id) {
+                    if (numberSlot == 1) it.copy(number1 = number) else it.copy(number2 = number)
+                } else it
+            }
+            syncNumberBasedCompletion(record.copy(items = updated), id)
+        }
     }
 
     fun deleteTodo(month: YearMonth, id: String, allowHistoricalEdit: Boolean = false) {
@@ -94,6 +108,8 @@ class TodoRepository(context: Context) {
         require(isEditableMonth(month) || allowHistoricalEdit) { "지난 달의 데이터는 수정할 수 없습니다." }
         updateMonth(month) { record ->
             val item = record.items.firstOrNull { it.id == todoId } ?: return@updateMonth record
+            // 필요 숫자가 있는 항목은 수동 체크를 허용하지 않고 숫자 비교로만 완료 상태를 결정합니다.
+            if (item.number1 != null) return@updateMonth syncNumberBasedCompletion(record, todoId)
             val newCompletedIds = if (done) record.completedIds + todoId else record.completedIds - todoId
             val remaining = record.items.filterNot { it.id == todoId }
             val pending = remaining.filter { it.id !in newCompletedIds }.toMutableList()
@@ -125,6 +141,28 @@ class TodoRepository(context: Context) {
 
     fun getFontSize(): Float = prefs.getFloat(KEY_FONT_SIZE, 16f)
     fun setFontSize(size: Float) { prefs.edit().putFloat(KEY_FONT_SIZE, size.coerceIn(10f, 30f)).apply() }
+
+    private fun syncNumberBasedCompletion(record: MonthRecord, id: String): MonthRecord {
+        val item = record.items.firstOrNull { it.id == id } ?: return record
+        if (item.number1 == null) return record
+        val completed = item.number2 != null && item.number1 == item.number2
+        val completedIds = if (completed) record.completedIds + id else record.completedIds - id
+        return record.copy(completedIds = completedIds)
+    }
+
+    private fun syncAllNumberBasedCompletion(record: MonthRecord): MonthRecord {
+        var completedIds = record.completedIds
+        record.items.forEach { item ->
+            if (item.number1 != null) {
+                completedIds = if (item.number2 != null && item.number1 == item.number2) {
+                    completedIds + item.id
+                } else {
+                    completedIds - item.id
+                }
+            }
+        }
+        return record.copy(completedIds = completedIds)
+    }
 
     private fun priorityKey(item: TodoItem): Int = item.priority ?: Int.MAX_VALUE
 

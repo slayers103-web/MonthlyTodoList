@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -607,7 +608,9 @@ private fun ReorderableTodoRow(
         numbersMismatch -> Color(0xFFEF6C00)
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val canCheck = numbersMatch
+    // 숫자 필요값이 있으면 완료 여부는 숫자 비교로 자동 결정하고,
+    // 필요값이 없는 항목만 체크박스로 수동 관리합니다.
+    val canCheck = todo.number1 == null
     Card(
         Modifier.fillMaxWidth().padding(vertical = (3f * scale).dp)
             .clickable(enabled = selectionMode != null) { onSelect() }
@@ -626,42 +629,48 @@ private fun ReorderableTodoRow(
         colors = CardDefaults.cardColors(containerColor = if (isDragging) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
     ) {
         Box(Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = (6f * scale).dp, vertical = (4f * scale).dp), verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(
-                checked = done,
-                enabled = editable && canCheck && selectionMode == null,
-                onCheckedChange = onToggle,
-                modifier = Modifier.size((24f * scale).dp)
-            )
-            Row(
-                Modifier.weight(1f).clickable(enabled = editable && canCheck && selectionMode == null) { onToggle(!done) }
-                    .padding(horizontal = (6f * scale).dp, vertical = (10f * scale).dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                todo.priority?.let {
-                    Text("[$it]", fontSize = fontSize.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = (6f * scale).dp))
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.weight(1f)
+                        .clickable(enabled = editable && canCheck && selectionMode == null) { onToggle(!done) }
+                        .padding(start = (6f * scale).dp, end = (6f * scale).dp, top = (4f * scale).dp, bottom = (4f * scale).dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = done,
+                        enabled = editable && (canCheck || todo.number1 == null) && selectionMode == null,
+                        onCheckedChange = onToggle,
+                        modifier = Modifier.size((24f * scale).dp)
+                    )
+                    Row(
+                        Modifier.weight(1f).padding(horizontal = (6f * scale).dp, vertical = (6f * scale).dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        todo.priority?.let {
+                            Text("[$it]", fontSize = fontSize.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = (6f * scale).dp))
+                        }
+                        Text(todo.text, fontSize = fontSize.sp, color = if (editable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (!editable) {
+                        Icon(Icons.Default.Lock, "과거 데이터", modifier = Modifier.padding(horizontal = (4f * scale).dp).size((22f * scale).dp))
+                    }
                 }
-                Text(todo.text, fontSize = fontSize.sp, color = if (editable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            VerticalDividerLine(scale)
-            Box(Modifier.width((68f * scale).dp), contentAlignment = Alignment.Center) {
-                Text(
-                    todo.number1?.toString() ?: "＋",
-                    fontSize = (fontSize * 0.9f).sp,
-                    color = if (todo.number1 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            VerticalDividerLine(scale)
-            TextButton(
-                onClick = { onNumber(2) },
-                enabled = editable && selectionMode == null,
-                modifier = Modifier.width((68f * scale).dp)
-            ) {
-                Text(todo.number2?.toString() ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number2 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (!editable) {
-                Icon(Icons.Default.Lock, "과거 데이터", modifier = Modifier.padding(horizontal = (8f * scale).dp).size((22f * scale).dp))
-            }
+                VerticalDividerLine(scale)
+                Box(Modifier.width((68f * scale).dp).height(IntrinsicSize.Min), contentAlignment = Alignment.Center) {
+                    Text(
+                        todo.number1?.toString() ?: "＋",
+                        fontSize = (fontSize * 0.9f).sp,
+                        color = if (todo.number1 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                VerticalDividerLine(scale)
+                TextButton(
+                    onClick = { onNumber(2) },
+                    enabled = editable && selectionMode == null,
+                    modifier = Modifier.width((68f * scale).dp)
+                ) {
+                    Text(todo.number2?.toString() ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number2 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             if (selectionMode != null) {
                 Box(
