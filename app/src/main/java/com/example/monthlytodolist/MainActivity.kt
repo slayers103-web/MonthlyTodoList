@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -625,7 +626,8 @@ private fun ReorderableTodoRow(
         border = BorderStroke((1f * scale).dp, if (selectionMode != null) Color(0xFF7E57C2) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
         colors = CardDefaults.cardColors(containerColor = if (isDragging) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = (6f * scale).dp, vertical = (4f * scale).dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = (6f * scale).dp, vertical = (4f * scale).dp), verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
                 checked = done,
                 enabled = editable && canCheck && selectionMode == null,
@@ -661,11 +663,12 @@ private fun ReorderableTodoRow(
             if (!editable) {
                 Icon(Icons.Default.Lock, "과거 데이터", modifier = Modifier.padding(horizontal = (8f * scale).dp).size((22f * scale).dp))
             }
-        }
-        if (selectionMode != null) {
-            Box(
-                Modifier.matchParentSize().clickable { onSelect() }
-            )
+            }
+            if (selectionMode != null) {
+                Box(
+                    Modifier.matchParentSize().clickable { onSelect() }
+                )
+            }
         }
     }
 }
