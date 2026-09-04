@@ -105,8 +105,8 @@ class TodoRepository(context: Context) {
         return item
     }
 
-    fun updateTodo(month: YearMonth, id: String, text: String) {
-        require(isEditableMonth(month)) { "지난 달의 데이터는 수정할 수 없습니다." }
+    fun updateTodo(month: YearMonth, id: String, text: String, allowHistoricalEdit: Boolean = false) {
+        require(isEditableMonth(month) || allowHistoricalEdit) { "지난 달의 데이터는 수정할 수 없습니다." }
         val clean = text.trim()
         require(clean.isNotBlank()) { "체크 항목을 입력해 주세요." }
         updateMonth(month) { record ->
@@ -114,8 +114,8 @@ class TodoRepository(context: Context) {
         }
     }
 
-    fun deleteTodo(month: YearMonth, id: String) {
-        require(isEditableMonth(month)) { "지난 달의 데이터는 수정할 수 없습니다." }
+    fun deleteTodo(month: YearMonth, id: String, allowHistoricalEdit: Boolean = false) {
+        require(isEditableMonth(month) || allowHistoricalEdit) { "지난 달의 데이터는 수정할 수 없습니다." }
         updateMonth(month) { record ->
             record.copy(
                 items = record.items.filterNot { it.id == id },
@@ -128,8 +128,8 @@ class TodoRepository(context: Context) {
     fun isDone(month: YearMonth, todoId: String): Boolean =
         getMonthRecords()[month.toString()]?.completedIds?.contains(todoId) == true
 
-    fun setDone(month: YearMonth, todoId: String, done: Boolean) {
-        require(isEditableMonth(month)) { "지난 달의 데이터는 수정할 수 없습니다." }
+    fun setDone(month: YearMonth, todoId: String, done: Boolean, allowHistoricalEdit: Boolean = false) {
+        require(isEditableMonth(month) || allowHistoricalEdit) { "지난 달의 데이터는 수정할 수 없습니다." }
         updateMonth(month) { record ->
             record.copy(
                 completedIds = if (done) record.completedIds + todoId

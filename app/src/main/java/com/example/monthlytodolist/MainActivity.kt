@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.AlertDialog
@@ -91,10 +92,12 @@ class MainActivity : ComponentActivity() {
 fun MonthlyTodoScreen() {
     val context = LocalContext.current
     val repository = remember { TodoRepository(context) }
-    var currentMonthText by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
+    var currentMonthText by remember { mutableStateOf(YearMonth.now().toString()) }
     val month = YearMonth.parse(currentMonthText)
     val today = YearMonth.now()
-    val editable = repository.isEditableMonth(month, today)
+    var historicalUnlocked by remember { mutableStateOf(false) }
+    var showUnlockDialog by remember { mutableStateOf(false) }
+    val editable = month >= today || (month < today && historicalUnlocked)
     var todos by remember { mutableStateOf(repository.getMonthItems(month)) }
     var refresh by remember { mutableStateOf(0) }
     var input by rememberSaveable { mutableStateOf("") }
@@ -111,6 +114,11 @@ fun MonthlyTodoScreen() {
         repository.prepareMonths()
         todos = repository.getMonthItems(month)
         refresh++
+    }
+
+    LaunchedEffect(month) {
+        // Historical-month unlock is session-only. Changing month starts locked.
+        historicalUnlocked = false
     }
 
     LaunchedEffect(month, refresh) {
@@ -229,12 +237,16 @@ fun MonthlyTodoScreen() {
             )
         }
     ) { padding ->
-        Column(
+        Box(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
             Row(
                 Modifier.fillMaxWidth().padding(bottom = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -262,38 +274,15 @@ fun MonthlyTodoScreen() {
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f)
                 )
-                if (!editable) {
-                    Icon(Icons.Default.Lock, "지난 달", modifier = Modifier.padding(end = 8.dp))
-                }
             }
 
             if (editable) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = { input = it },
-                        placeholder = { Text("체크할 항목을 입력하세요") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(Modifier.padding(4.dp))
-                    Button(
-                        onClick = {
-                            if (input.isNotBlank()) {
-                                repository.addTodo(month, input)
-                                input = ""
-                                reload()
-                            }
-                        }
-                    ) {
-                        Icon(Icons.Default.Add, null)
-                        Text("추가")
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
+                Text(
+                    "오른쪽 아래 + 버튼으로 체크 항목을 추가할 수 있습니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
             }
 
             val completed = todos.count { repository.isDone(month, it.id) }
@@ -312,7 +301,7 @@ fun MonthlyTodoScreen() {
                     )
                 ) {
                     Text(
-                        if (editable) "아직 체크 항목이 없습니다.\n위 입력창에서 항목을 추가해 보세요."
+                        if (editable) "아직 체크 항목이 없습니다.\n오른쪽 아래 + 버튼으로 항목을 추가해 보세요."
                         else "이 달에는 저장된 체크 항목이 없습니다.",
                         Modifier.padding(18.dp)
                     )
@@ -323,9 +312,13 @@ fun MonthlyTodoScreen() {
                         val done = repository.isDone(month, todo.id)
                         Card(
                             Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(10.dp),
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surface
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
                             )
                         ) {
                             Row(
@@ -336,7 +329,7 @@ fun MonthlyTodoScreen() {
                                     checked = done,
                                     enabled = editable,
                                     onCheckedChange = { checked ->
-                                        repository.setDone(month, todo.id, checked)
+                                        repository.setDone(month, todo.id, checked, allowHistoricalEdit = historicalUnlocked)
                                         reload()
                                     }
                                 )
@@ -358,10 +351,7 @@ fun MonthlyTodoScreen() {
                                     IconButton(onClick = { editingTodo = todo }) {
                                         Icon(Icons.Default.Edit, "수정")
                                     }
-                                    IconButton(onClick = {
-                                        repository.deleteTodo(month, todo.id)
-                                        reload()
-                                    }) {
+                                    IconButton(onClick = { deletingTodo = todo }) {
                                         Icon(Icons.Default.Delete, "삭제")
                                     }
                                 } else {
@@ -378,18 +368,54 @@ fun MonthlyTodoScreen() {
             }
 
             Spacer(Modifier.height(8.dp))
-            HorizontalDivider()
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
             Spacer(Modifier.height(8.dp))
             Text(
-                if (editable) {
-                    "이번 달에 추가·수정한 항목은 다음 달에도 이어집니다."
-                } else {
-                    "지난 달은 당시 저장된 목록과 완료 상태만 확인할 수 있습니다."
+                when {
+                    month < today && historicalUnlocked ->
+                        "잠금이 해제된 과거 월입니다. 앱을 다시 실행하면 자동으로 잠깁니다."
+                    month < today ->
+                        "지난 달은 기본 잠금 상태입니다. 왼쪽 아래 자물쇠 버튼으로 잠시 잠금을 해제할 수 있습니다."
+                    else ->
+                        "이번 달에 추가·수정한 항목은 다음 달에도 이어집니다."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
             )
+        }
+
+        if (month < today) {
+            IconButton(
+                onClick = {
+                    if (historicalUnlocked) {
+                        historicalUnlocked = false
+                    } else {
+                        showUnlockDialog = true
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(20.dp)
+            ) {
+                Icon(
+                    if (historicalUnlocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                    contentDescription = if (historicalUnlocked) "다시 잠그기" else "잠금 해제",
+                    tint = if (historicalUnlocked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        if (editable && month >= today) {
+            FloatingActionButton(
+                onClick = { showAddDialog = true },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(20.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "체크 항목 추가")
+            }
+        }
         }
     }
 
@@ -398,9 +424,60 @@ fun MonthlyTodoScreen() {
             initial = todo.text,
             onDismiss = { editingTodo = null },
             onSave = { newText ->
-                repository.updateTodo(month, todo.id, newText)
+                repository.updateTodo(month, todo.id, newText, allowHistoricalEdit = historicalUnlocked)
                 editingTodo = null
                 reload()
+            }
+        )
+    }
+
+    if (showAddDialog) {
+        AddTodoDialog(
+            onDismiss = { showAddDialog = false },
+            onAdd = { text ->
+                repository.addTodo(month, text)
+                showAddDialog = false
+                reload()
+            }
+        )
+    }
+
+    deletingTodo?.let { todo ->
+        AlertDialog(
+            onDismissRequest = { deletingTodo = null },
+            title = { Text("체크 항목 삭제") },
+            text = { Text("‘${todo.text}’ 항목을 삭제하시겠습니까?\n삭제하면 현재 달의 목록에서 제거됩니다.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    repository.deleteTodo(month, todo.id, allowHistoricalEdit = historicalUnlocked)
+                    deletingTodo = null
+                    reload()
+                }) { Text("삭제") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingTodo = null }) { Text("취소") }
+            }
+        )
+    }
+
+    if (showUnlockDialog) {
+        AlertDialog(
+            onDismissRequest = { showUnlockDialog = false },
+            title = { Text("과거 월 잠금 해제") },
+            text = {
+                Text(
+                    "지난 달의 데이터를 잠시 수정할 수 있도록 잠금을 해제하시겠습니까?\n\n" +
+                        "잠금 해제 상태는 앱을 종료하거나 다시 실행하면 자동으로 초기화됩니다."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    historicalUnlocked = true
+                    showUnlockDialog = false
+                }) { Text("잠금 해제") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUnlockDialog = false }) { Text("취소") }
             }
         )
     }
@@ -452,6 +529,36 @@ fun MonthlyTodoScreen() {
             }
         )
     }
+}
+
+@Composable
+private fun AddTodoDialog(
+    onDismiss: () -> Unit,
+    onAdd: (String) -> Unit
+) {
+    var text by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("체크 항목 추가") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("항목명") },
+                placeholder = { Text("체크할 항목을 입력하세요") },
+                singleLine = true
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = text.isNotBlank(),
+                onClick = { onAdd(text.trim()) }
+            ) { Text("추가") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("취소") }
+        }
+    )
 }
 
 @Composable
