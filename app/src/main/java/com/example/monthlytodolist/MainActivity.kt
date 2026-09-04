@@ -86,7 +86,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.ui.input.pointer.awaitPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -230,26 +229,24 @@ fun MonthlyTodoScreen() {
         Box(
             Modifier.fillMaxSize().padding(padding).pointerInput(Unit) {
                 awaitEachGesture {
-                    awaitPointerEventScope {
-                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                        var lastX = down.position.x
-                        var lastY = down.position.y
-                        var totalX = 0f
-                        var totalY = 0f
-                        while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Initial)
-                            val change = event.changes.firstOrNull() ?: break
-                            if (!change.pressed) break
-                            val dx = change.position.x - lastX
-                            val dy = change.position.y - lastY
-                            totalX += dx
-                            totalY += dy
-                            lastX = change.position.x
-                            lastY = change.position.y
-                        }
-                        if (kotlin.math.abs(totalX) > 90f && kotlin.math.abs(totalX) > kotlin.math.abs(totalY) * 1.2f) {
-                            if (totalX < 0f) moveMonth(1) else moveMonth(-1)
-                        }
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    var lastX = down.position.x
+                    var lastY = down.position.y
+                    var totalX = 0f
+                    var totalY = 0f
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull() ?: break
+                        if (!change.pressed) break
+                        val dx = change.position.x - lastX
+                        val dy = change.position.y - lastY
+                        totalX += dx
+                        totalY += dy
+                        lastX = change.position.x
+                        lastY = change.position.y
+                    }
+                    if (kotlin.math.abs(totalX) > 90f && kotlin.math.abs(totalX) > kotlin.math.abs(totalY) * 1.2f) {
+                        if (totalX < 0f) moveMonth(1) else moveMonth(-1)
                     }
                 }
             }
