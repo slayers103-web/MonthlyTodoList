@@ -16,7 +16,7 @@ class TodoNotificationReceiver : BroadcastReceiver() {
         } else YearMonth.now()
 
         val repository = TodoRepository(context)
-        val todos = repository.getTodos()
+        val todos = repository.getMonthItems(month)
         val remaining = todos.count { !repository.isDone(month, it.id) }
 
         if (remaining > 0 && notificationsAllowed(context)) {
