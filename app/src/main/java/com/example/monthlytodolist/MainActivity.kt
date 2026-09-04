@@ -92,6 +92,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -106,6 +107,8 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -439,13 +442,16 @@ private fun MonthContent(
         }
         val scale = (fontSize / 16f).coerceIn(0.625f, 1.875f)
         Row(
-            Modifier.fillMaxWidth().padding(bottom = (4f * scale).dp)
+            Modifier.fillMaxWidth()
+                .padding(bottom = (4f * scale).dp)
                 .height((34f * scale).dp)
-                .border((1f * scale).dp, Color.White.copy(alpha = 0.55f))
+                .clip(RoundedCornerShape((10f * scale).dp))
+                .background(Color(0xFF7E57C2))
+                .border((1f * scale).dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f), RoundedCornerShape((10f * scale).dp))
         ) {
-            HeaderCell("항목", Modifier.weight(1f), fontSize, scale)
-            HeaderCell("필요", Modifier.width((68f * scale).dp), fontSize, scale)
-            HeaderCell("완료", Modifier.width((68f * scale).dp), fontSize, scale)
+            HeaderCell("항목", Modifier.weight(1f), fontSize, scale, dividerEnd = true)
+            HeaderCell("필요", Modifier.width((68f * scale).dp), fontSize, scale, dividerEnd = true)
+            HeaderCell("완료", Modifier.width((68f * scale).dp), fontSize, scale, dividerEnd = false)
         }
 
         if (todos.isEmpty()) {
@@ -550,17 +556,29 @@ private fun MonthContent(
 }
 
 @Composable
-private fun HeaderCell(title: String, modifier: Modifier, fontSize: Float, scale: Float) {
+private fun HeaderCell(
+    title: String,
+    modifier: Modifier,
+    fontSize: Float,
+    scale: Float,
+    dividerEnd: Boolean
+) {
     Box(
-        modifier.fillMaxHeight()
-            .background(Color(0xFF7E57C2))
-            .border((0.5f * scale).dp, Color.White.copy(alpha = 0.6f)),
+        modifier = modifier.fillMaxHeight(),
         contentAlignment = Alignment.Center
     ) {
         Text(
             title, fontSize = fontSize.sp, fontWeight = FontWeight.SemiBold,
             color = Color.White, textAlign = TextAlign.Center
         )
+        if (dividerEnd) {
+            Box(
+                Modifier.align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .width((1f * scale).dp)
+                    .background(Color.White.copy(alpha = 0.6f))
+            )
+        }
     }
 }
 
@@ -610,7 +628,7 @@ private fun ReorderableTodoRow(
         Row(Modifier.fillMaxWidth().padding(horizontal = (6f * scale).dp, vertical = (4f * scale).dp), verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
                 checked = done,
-                enabled = editable && canCheck,
+                enabled = editable && canCheck && selectionMode == null,
                 onCheckedChange = onToggle,
                 modifier = Modifier.size((24f * scale).dp)
             )
@@ -625,16 +643,29 @@ private fun ReorderableTodoRow(
                 Text(todo.text, fontSize = fontSize.sp, color = if (editable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
             }
             VerticalDividerLine(scale)
-            TextButton(onClick = { onNumber(1) }, enabled = editable && selectionMode == null, modifier = Modifier.width((68f * scale).dp)) {
-                Text(todo.number1?.toString() ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number1 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(Modifier.width((68f * scale).dp), contentAlignment = Alignment.Center) {
+                Text(
+                    todo.number1?.toString() ?: "＋",
+                    fontSize = (fontSize * 0.9f).sp,
+                    color = if (todo.number1 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             VerticalDividerLine(scale)
-            TextButton(onClick = { onNumber(2) }, enabled = editable && selectionMode == null, modifier = Modifier.width((68f * scale).dp)) {
+            TextButton(
+                onClick = { onNumber(2) },
+                enabled = editable && selectionMode == null,
+                modifier = Modifier.width((68f * scale).dp)
+            ) {
                 Text(todo.number2?.toString() ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number2 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (!editable) {
                 Icon(Icons.Default.Lock, "과거 데이터", modifier = Modifier.padding(horizontal = (8f * scale).dp).size((22f * scale).dp))
             }
+        }
+        if (selectionMode != null) {
+            Box(
+                Modifier.matchParentSize().clickable { onSelect() }
+            )
         }
     }
 }
@@ -649,9 +680,16 @@ private fun AddTodoDialog(onDismiss: () -> Unit, onAdd: (String, Int?, Int?) -> 
     var text by rememberSaveable { mutableStateOf("") }
     var priorityText by rememberSaveable { mutableStateOf("") }
     var number1Text by rememberSaveable { mutableStateOf("") }
-    val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val textFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val priorityFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val number1Focus = remember { androidx.compose.ui.focus.FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboardController?.show() }
+    fun save() {
+        if (text.isNotBlank()) {
+            onAdd(text.trim(), priorityText.toIntOrNull()?.takeIf { it >= 1 }, number1Text.toIntOrNull())
+        }
+    }
+    LaunchedEffect(Unit) { textFocus.requestFocus(); keyboardController?.show() }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("체크 항목 추가") },
@@ -660,25 +698,29 @@ private fun AddTodoDialog(onDismiss: () -> Unit, onAdd: (String, Int?, Int?) -> 
                 OutlinedTextField(
                     value = text, onValueChange = { text = it }, label = { Text("항목명") },
                     placeholder = { Text("체크할 항목을 입력하세요") }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth().focusRequester(focusRequester)
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { priorityFocus.requestFocus() }),
+                    modifier = Modifier.fillMaxWidth().focusRequester(textFocus)
                 )
                 Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = priorityText, onValueChange = { if (it.all(Char::isDigit) && it.length <= 3) priorityText = it },
                     label = { Text("우선순위") }, placeholder = { Text("미지정") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { number1Focus.requestFocus() }),
+                    modifier = Modifier.fillMaxWidth().focusRequester(priorityFocus)
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = number1Text, onValueChange = { if (it.all(Char::isDigit) && it.length <= 6) number1Text = it },
                     label = { Text("필요 숫자") }, placeholder = { Text("숫자를 입력하세요") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { save() }),
+                    modifier = Modifier.fillMaxWidth().focusRequester(number1Focus)
                 )
             }
         },
-        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onAdd(text.trim(), priorityText.toIntOrNull()?.takeIf { it >= 1 }, number1Text.toIntOrNull()) }) { Text("추가") } },
+        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { save() }) { Text("추가") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } }
     )
 }
@@ -729,6 +771,7 @@ private fun NumberInputDialog(title: String, initial: Int?, onDismiss: () -> Uni
     var text by remember(initial) { mutableStateOf(initial?.toString() ?: "") }
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    fun save() { onSave(text.toIntOrNull()) }
     LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboardController?.show() }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -740,11 +783,13 @@ private fun NumberInputDialog(title: String, initial: Int?, onDismiss: () -> Uni
                 label = { Text("숫자") },
                 placeholder = { Text("숫자를 입력하세요") },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { save() }),
                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester)
             )
         },
-        confirmButton = { TextButton(onClick = { onSave(text.toIntOrNull()) }) { Text("저장") } },
+        confirmButton = { TextButton(onClick = { save() }) { Text("저장") } },
         dismissButton = { TextButton(onClick = { onSave(null) }) { Text("기록 지우기") } }
     )
 }
+

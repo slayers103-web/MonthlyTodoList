@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.monthlytodolist"
         minSdk = 24
         targetSdk = 35
-        versionCode = 21
-        versionName = "4.6"
+        versionCode = 22
+        versionName = "4.8"
     }
 
     compileOptions {
