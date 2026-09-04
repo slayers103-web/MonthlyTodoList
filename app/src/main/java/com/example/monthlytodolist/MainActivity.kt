@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.animateItemPlacement
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -451,8 +452,8 @@ private fun MonthContent(
                 .border((1f * scale).dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f), RoundedCornerShape((10f * scale).dp))
         ) {
             HeaderCell("항목", Modifier.weight(1f), fontSize, scale, dividerEnd = true)
-            HeaderCell("필요", Modifier.width((68f * scale).dp), fontSize, scale, dividerEnd = true)
-            HeaderCell("완료", Modifier.width((68f * scale).dp), fontSize, scale, dividerEnd = false)
+            HeaderCell("필요", Modifier.weight(0.2f), fontSize, scale, dividerEnd = true)
+            HeaderCell("완료", Modifier.weight(0.2f), fontSize, scale, dividerEnd = false)
         }
 
         if (todos.isEmpty()) {
@@ -613,6 +614,7 @@ private fun ReorderableTodoRow(
     val canCheck = todo.number1 == null
     Card(
         Modifier.fillMaxWidth().padding(vertical = (3f * scale).dp)
+            .animateItemPlacement()
             .clickable(enabled = selectionMode != null) { onSelect() }
             .onGloballyPositioned { onBoundsChanged(it.boundsInParent()) }
             .graphicsLayer { translationY = if (isDragging) dragOffset else 0f }
@@ -656,7 +658,7 @@ private fun ReorderableTodoRow(
                     }
                 }
                 VerticalDividerLine(scale)
-                Box(Modifier.width((68f * scale).dp).height(IntrinsicSize.Min), contentAlignment = Alignment.Center) {
+                Box(Modifier.weight(0.2f).height(IntrinsicSize.Min), contentAlignment = Alignment.Center) {
                     Text(
                         todo.number1?.toString() ?: "＋",
                         fontSize = (fontSize * 0.9f).sp,
@@ -664,18 +666,19 @@ private fun ReorderableTodoRow(
                     )
                 }
                 VerticalDividerLine(scale)
-                TextButton(
-                    onClick = { onNumber(2) },
-                    enabled = editable && selectionMode == null,
-                    modifier = Modifier.width((68f * scale).dp)
-                ) {
-                    Text(todo.number2?.toString() ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number2 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
+                if (selectionMode == null) {
+                    TextButton(
+                        onClick = { onNumber(2) },
+                        enabled = editable,
+                        modifier = Modifier.weight(0.2f)
+                    ) {
+                        Text(todo.number2?.toString() ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number2 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    Box(Modifier.weight(0.2f), contentAlignment = Alignment.Center) {
+                        Text(todo.number2?.toString() ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number2 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
-            }
-            if (selectionMode != null) {
-                Box(
-                    Modifier.fillMaxSize().clickable { onSelect() }
-                )
             }
         }
     }
@@ -779,10 +782,12 @@ private fun EditTodoDialog(
 
 @Composable
 private fun NumberInputDialog(title: String, initial: Int?, onDismiss: () -> Unit, onSave: (Int?) -> Unit) {
-    var text by remember(initial) { mutableStateOf(initial?.toString() ?: "") }
+    var text by remember(initial) {
+        mutableStateOf(TextFieldValue(initial?.toString() ?: "", TextRange((initial?.toString() ?: "").length)))
+    }
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    fun save() { onSave(text.toIntOrNull()) }
+    fun save() { onSave(text.text.toIntOrNull()) }
     LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboardController?.show() }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -790,7 +795,9 @@ private fun NumberInputDialog(title: String, initial: Int?, onDismiss: () -> Uni
         text = {
             OutlinedTextField(
                 value = text,
-                onValueChange = { if (it.all(Char::isDigit) && it.length <= 6) text = it },
+                onValueChange = { value ->
+                    if (value.text.all(Char::isDigit) && value.text.length <= 6) text = value
+                },
                 label = { Text("숫자") },
                 placeholder = { Text("숫자를 입력하세요") },
                 singleLine = true,
