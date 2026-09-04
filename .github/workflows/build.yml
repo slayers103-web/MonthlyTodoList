@@ -29,6 +29,10 @@ jobs:
     - name: Make gradlew executable
       run: chmod +x gradlew
 
+    - name: Clean legacy duplicate icon resources
+      run: |
+        find app/src/main/res -type f \( -name "ic_launcher.xml" -o -name "ic_launcher.png" -o -name "ic_mtdl.xml" \) -delete
+
     - name: Build APK with Gradle
       run: ./gradlew assembleDebug
 

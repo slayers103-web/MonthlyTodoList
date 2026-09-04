@@ -6,8 +6,8 @@
     <application
         android:allowBackup="true"
         android:label="MTDL"
-        android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher"
+        android:icon="@mipmap/ic_launcher_mtdl"
+        android:roundIcon="@mipmap/ic_launcher_mtdl"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
             android:name=".MainActivity"
