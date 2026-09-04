@@ -149,6 +149,7 @@ fun MonthlyTodoScreen() {
     var showAddDialog by remember { mutableStateOf(false) }
     var showNotificationHelp by remember { mutableStateOf(false) }
     var showInfo by remember { mutableStateOf(false) }
+    var selectionMode by remember { mutableStateOf<String?>(null) }
     var monthDirection by remember { mutableStateOf(1) }
 
     val formatter = remember { DateTimeFormatter.ofPattern("yyyy년 M월", Locale.KOREAN) }
@@ -209,6 +210,14 @@ fun MonthlyTodoScreen() {
                     containerColor = Color(0xFF00897B), titleContentColor = Color.White, actionIconContentColor = Color.White
                 ),
                 actions = {
+                    if (editable) {
+                        IconButton(onClick = { selectionMode = if (selectionMode == "edit") null else "edit" }) {
+                            Icon(Icons.Default.Edit, if (selectionMode == "edit") "수정 선택 취소" else "항목 수정")
+                        }
+                        IconButton(onClick = { selectionMode = if (selectionMode == "delete") null else "delete" }) {
+                            Icon(Icons.Default.Delete, if (selectionMode == "delete") "삭제 선택 취소" else "항목 삭제")
+                        }
+                    }
                     Box {
                         IconButton(onClick = { menuExpanded = true }) { Icon(Icons.Default.MoreVert, "메뉴") }
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
@@ -295,9 +304,16 @@ fun MonthlyTodoScreen() {
                     onPrevious = { moveMonth(-1) },
                     onNext = { moveMonth(1) },
                     onToggle = { todo, done -> repository.setDone(animatedMonth, todo.id, done, historicalUnlocked); reload() },
-                    onNumber = { todo, slot -> numberTodo = todo to slot },
-                    onEdit = { todo -> editingTodo = todo },
-                    onDelete = { todo -> deletingTodo = todo },
+                    onNumber = { todo, slot -> if (selectionMode == null) numberTodo = todo to slot },
+                    onEdit = { todo -> editingTodo = todo; selectionMode = null },
+                    onDelete = { todo -> deletingTodo = todo; selectionMode = null },
+                    selectionMode = selectionMode,
+                    onSelect = { todo ->
+                        when (selectionMode) {
+                            "edit" -> { editingTodo = todo; selectionMode = null }
+                            "delete" -> { deletingTodo = todo; selectionMode = null }
+                        }
+                    },
                     onReorder = { todo, sectionDone, targetIndex -> repository.reorderTodo(animatedMonth, todo.id, targetIndex, sectionDone, historicalUnlocked); reload() }
                 )
             }
@@ -306,12 +322,12 @@ fun MonthlyTodoScreen() {
                 FloatingActionButton(
                     onClick = { if (historicalUnlocked) historicalUnlocked = false else showUnlockDialog = true },
                     modifier = Modifier.align(Alignment.BottomStart).padding(20.dp),
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    containerColor = Color(0xFF7E57C2),
+                    contentColor = Color.White
                 ) { Icon(if (historicalUnlocked) Icons.Default.LockOpen else Icons.Default.Lock, if (historicalUnlocked) "다시 잠그기" else "잠금 해제") }
             }
             if (editable && month >= today) {
-                FloatingActionButton(onClick = { showAddDialog = true }, modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)) {
+                FloatingActionButton(onClick = { showAddDialog = true }, modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp), containerColor = Color(0xFF7E57C2), contentColor = Color.White) {
                     Icon(Icons.Default.Add, "체크 항목 추가")
                 }
             }
@@ -403,6 +419,8 @@ private fun MonthContent(
     onNumber: (TodoItem, Int) -> Unit,
     onEdit: (TodoItem) -> Unit,
     onDelete: (TodoItem) -> Unit,
+    selectionMode: String?,
+    onSelect: (TodoItem) -> Unit,
     onReorder: (TodoItem, Boolean, Int) -> Unit
 ) {
     val pending = todos.filter { !repository.isDone(month, it.id) }
@@ -422,17 +440,11 @@ private fun MonthContent(
         Row(
             Modifier.fillMaxWidth().padding(bottom = (4f * scale).dp)
                 .height((34f * scale).dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
-            verticalAlignment = Alignment.CenterVertically
+                .border((1f * scale).dp, Color.White.copy(alpha = 0.55f))
         ) {
-            Text(
-                "항목", Modifier.weight(1f).padding(start = (44f * scale).dp),
-                fontSize = fontSize.sp, fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            HeaderCell("필요", (68f * scale).dp, fontSize)
-            HeaderCell("완료", (68f * scale).dp, fontSize)
-            HeaderCell("", (88f * scale).dp, fontSize)
+            HeaderCell("항목", Modifier.weight(1f), fontSize, scale)
+            HeaderCell("필요", Modifier.width((68f * scale).dp), fontSize, scale)
+            HeaderCell("완료", Modifier.width((68f * scale).dp), fontSize, scale)
         }
 
         if (todos.isEmpty()) {
@@ -466,6 +478,7 @@ private fun MonthContent(
                                 todo = todo, done = false, editable = editable, isDragging = draggedId == todo.id, dragOffset = dragOffset, fontSize = fontSize,
                                 onToggle = { onToggle(todo, it) }, onNumber = { slot -> onNumber(todo, slot) },
                                 onEdit = { onEdit(todo) }, onDelete = { onDelete(todo) },
+                                selectionMode = selectionMode, onSelect = { onSelect(todo) },
                                 onDragStart = {
                                     draggedId = todo.id; draggedSectionDone = false; dragOffset = 0f
                                     val snapshot = pending.filter { it.id != todo.id }
@@ -486,6 +499,7 @@ private fun MonthContent(
                                 todo = todo, done = true, editable = editable, isDragging = draggedId == todo.id, dragOffset = dragOffset, fontSize = fontSize,
                                 onToggle = { onToggle(todo, it) }, onNumber = { slot -> onNumber(todo, slot) },
                                 onEdit = { onEdit(todo) }, onDelete = { onDelete(todo) },
+                                selectionMode = selectionMode, onSelect = { onSelect(todo) },
                                 onDragStart = {
                                     draggedId = todo.id; draggedSectionDone = true; dragOffset = 0f
                                     val snapshot = completed.filter { it.id != todo.id }
@@ -535,13 +549,17 @@ private fun MonthContent(
 }
 
 @Composable
-private fun HeaderCell(title: String, width: androidx.compose.ui.unit.Dp, fontSize: Float) {
+private fun HeaderCell(title: String, modifier: Modifier, fontSize: Float, scale: Float) {
     Box(
-        Modifier.width(width).fillMaxSize()
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
+        modifier.fillMaxHeight()
+            .background(Color(0xFF7E57C2))
+            .border((0.5f * scale).dp, Color.White.copy(alpha = 0.6f)),
         contentAlignment = Alignment.Center
     ) {
-        Text(title, fontSize = fontSize.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            title, fontSize = fontSize.sp, fontWeight = FontWeight.SemiBold,
+            color = Color.White, textAlign = TextAlign.Center
+        )
     }
 }
 
@@ -558,6 +576,7 @@ private fun ReorderableTodoRow(
     todo: TodoItem, done: Boolean, editable: Boolean, isDragging: Boolean, dragOffset: Float, fontSize: Float,
     onToggle: (Boolean) -> Unit, onNumber: (Int) -> Unit,
     onEdit: () -> Unit, onDelete: () -> Unit,
+    selectionMode: String?, onSelect: () -> Unit,
     onDragStart: () -> Unit, onDrag: (Float) -> Unit, onDragEnd: () -> Unit, onDragCancel: () -> Unit,
     onBoundsChanged: (Rect) -> Unit
 ) {
@@ -572,18 +591,19 @@ private fun ReorderableTodoRow(
     val canCheck = numbersMatch
     Card(
         Modifier.fillMaxWidth().padding(vertical = (3f * scale).dp)
+            .clickable(enabled = selectionMode != null) { onSelect() }
             .onGloballyPositioned { onBoundsChanged(it.boundsInParent()) }
             .graphicsLayer { translationY = if (isDragging) dragOffset else 0f }
             .shadow(if (isDragging) 12.dp else 0.dp, RoundedCornerShape((10f * scale).dp))
-            .pointerInput(editable) {
-                if (editable) detectDragGesturesAfterLongPress(
+            .pointerInput(editable, selectionMode) {
+                if (editable && selectionMode == null) detectDragGesturesAfterLongPress(
                     onDragStart = { onDragStart() },
                     onDrag = { change, amount -> change.consume(); onDrag(amount.y) },
                     onDragEnd = { onDragEnd() }, onDragCancel = { onDragCancel() }
                 )
             },
         shape = RoundedCornerShape((10f * scale).dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
+        border = BorderStroke((1f * scale).dp, if (selectionMode != null) Color(0xFF7E57C2) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
         colors = CardDefaults.cardColors(containerColor = if (isDragging) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = (6f * scale).dp, vertical = (4f * scale).dp), verticalAlignment = Alignment.CenterVertically) {
@@ -594,7 +614,7 @@ private fun ReorderableTodoRow(
                 modifier = Modifier.size((24f * scale).dp)
             )
             Row(
-                Modifier.weight(1f).clickable(enabled = editable && canCheck) { onToggle(!done) }
+                Modifier.weight(1f).clickable(enabled = editable && canCheck && selectionMode == null) { onToggle(!done) }
                     .padding(horizontal = (6f * scale).dp, vertical = (10f * scale).dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -604,21 +624,14 @@ private fun ReorderableTodoRow(
                 Text(todo.text, fontSize = fontSize.sp, color = if (editable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
             }
             VerticalDividerLine(scale)
-            TextButton(onClick = { onNumber(1) }, enabled = editable, modifier = Modifier.width((68f * scale).dp)) {
+            TextButton(onClick = { onNumber(1) }, enabled = editable && selectionMode == null, modifier = Modifier.width((68f * scale).dp)) {
                 Text(todo.number1?.toString() ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number1 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
             }
             VerticalDividerLine(scale)
-            TextButton(onClick = { onNumber(2) }, enabled = editable, modifier = Modifier.width((68f * scale).dp)) {
+            TextButton(onClick = { onNumber(2) }, enabled = editable && selectionMode == null, modifier = Modifier.width((68f * scale).dp)) {
                 Text(todo.number2?.toString() ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number2 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (editable) {
-                IconButton(onClick = onEdit, modifier = Modifier.size((40f * scale).dp)) {
-                    Icon(Icons.Default.Edit, "항목 수정", modifier = Modifier.size((20f * scale).dp))
-                }
-                IconButton(onClick = onDelete, modifier = Modifier.size((40f * scale).dp)) {
-                    Icon(Icons.Default.Delete, "항목 삭제", modifier = Modifier.size((20f * scale).dp))
-                }
-            } else {
+            if (!editable) {
                 Icon(Icons.Default.Lock, "과거 데이터", modifier = Modifier.padding(horizontal = (8f * scale).dp).size((22f * scale).dp))
             }
         }
@@ -633,10 +646,8 @@ private fun VerticalDividerLine(scale: Float) {
 @Composable
 private fun AddTodoDialog(onDismiss: () -> Unit, onAdd: (String, Int?, Int?) -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
-    var priority by rememberSaveable { mutableStateOf<Int?>(null) }
-    var number1 by rememberSaveable { mutableStateOf<Int?>(null) }
-    var showPriorityInput by remember { mutableStateOf(false) }
-    var showNumber1Input by remember { mutableStateOf(false) }
+    var priorityText by rememberSaveable { mutableStateOf("") }
+    var number1Text by rememberSaveable { mutableStateOf("") }
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboardController?.show() }
@@ -651,20 +662,24 @@ private fun AddTodoDialog(onDismiss: () -> Unit, onAdd: (String, Int?, Int?) -> 
                     modifier = Modifier.fillMaxWidth().focusRequester(focusRequester)
                 )
                 Spacer(Modifier.height(10.dp))
-                NumericSettingField("우선순위", priority, onClick = { showPriorityInput = true }, displayNull = "- (미지정)")
+                OutlinedTextField(
+                    value = priorityText, onValueChange = { if (it.all(Char::isDigit) && it.length <= 3) priorityText = it },
+                    label = { Text("우선순위") }, placeholder = { Text("미지정") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
                 Spacer(Modifier.height(8.dp))
-                NumericSettingField("필요 숫자 기록", number1, onClick = { showNumber1Input = true })
+                OutlinedTextField(
+                    value = number1Text, onValueChange = { if (it.all(Char::isDigit) && it.length <= 6) number1Text = it },
+                    label = { Text("필요 숫자") }, placeholder = { Text("숫자를 입력하세요") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         },
-        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onAdd(text.trim(), priority, number1) }) { Text("추가") } },
+        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onAdd(text.trim(), priorityText.toIntOrNull()?.takeIf { it >= 1 }, number1Text.toIntOrNull()) }) { Text("추가") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } }
     )
-    if (showPriorityInput) {
-        PriorityInputDialog(priority, onDismiss = { showPriorityInput = false }, onSave = { priority = it; showPriorityInput = false })
-    }
-    if (showNumber1Input) {
-        NumberInputDialog("필요 숫자 기록", number1, onDismiss = { showNumber1Input = false }, onSave = { number1 = it; showNumber1Input = false })
-    }
 }
 
 @Composable
@@ -676,10 +691,8 @@ private fun EditTodoDialog(
     onSave: (String, Int?, Int?) -> Unit
 ) {
     var value by remember(initial) { mutableStateOf(TextFieldValue(initial, TextRange(initial.length))) }
-    var priority by remember(initialPriority) { mutableStateOf(initialPriority) }
-    var number1 by remember(initialNumber1) { mutableStateOf(initialNumber1) }
-    var showPriorityInput by remember { mutableStateOf(false) }
-    var showNumber1Input by remember { mutableStateOf(false) }
+    var priorityText by remember(initialPriority) { mutableStateOf(initialPriority?.toString() ?: "") }
+    var number1Text by remember(initialNumber1) { mutableStateOf(initialNumber1?.toString() ?: "") }
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboardController?.show() }
@@ -692,66 +705,21 @@ private fun EditTodoDialog(
                     modifier = Modifier.fillMaxWidth().focusRequester(focusRequester)
                 )
                 Spacer(Modifier.height(10.dp))
-                NumericSettingField("우선순위", priority, onClick = { showPriorityInput = true }, displayNull = "- (미지정)")
+                OutlinedTextField(
+                    value = priorityText, onValueChange = { if (it.all(Char::isDigit) && it.length <= 3) priorityText = it },
+                    label = { Text("우선순위") }, placeholder = { Text("미지정") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth()
+                )
                 Spacer(Modifier.height(8.dp))
-                NumericSettingField("필요 숫자 기록", number1, onClick = { showNumber1Input = true })
+                OutlinedTextField(
+                    value = number1Text, onValueChange = { if (it.all(Char::isDigit) && it.length <= 6) number1Text = it },
+                    label = { Text("필요 숫자") }, placeholder = { Text("숫자를 입력하세요") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth()
+                )
             }
         },
-        confirmButton = { TextButton(enabled = value.text.isNotBlank(), onClick = { onSave(value.text.trim(), priority, number1) }) { Text("저장") } },
+        confirmButton = { TextButton(enabled = value.text.isNotBlank(), onClick = { onSave(value.text.trim(), priorityText.toIntOrNull()?.takeIf { it >= 1 }, number1Text.toIntOrNull()) }) { Text("저장") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } }
-    )
-    if (showPriorityInput) {
-        PriorityInputDialog(priority, onDismiss = { showPriorityInput = false }, onSave = { priority = it; showPriorityInput = false })
-    }
-    if (showNumber1Input) {
-        NumberInputDialog("필요 숫자 기록", number1, onDismiss = { showNumber1Input = false }, onSave = { number1 = it; showNumber1Input = false })
-    }
-}
-
-@Composable
-private fun NumericSettingField(label: String, value: Int?, onClick: () -> Unit, displayNull: String = "") {
-    Box(Modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = value?.toString() ?: displayNull,
-            onValueChange = {},
-            readOnly = true,
-            enabled = true,
-            label = { Text(label) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            trailingIcon = { Text("숫자 입력", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
-        )
-        Box(Modifier.matchParentSize().clickable(onClick = onClick))
-    }
-}
-
-@Composable
-private fun PriorityInputDialog(initial: Int?, onDismiss: () -> Unit, onSave: (Int?) -> Unit) {
-    var text by remember(initial) { mutableStateOf(initial?.toString() ?: "") }
-    val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
-    val keyboardController = LocalSoftwareKeyboardController.current
-    LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboardController?.show() }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("우선순위 입력") },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { if (it.all(Char::isDigit) && it.length <= 3) text = it },
-                label = { Text("우선순위") },
-                placeholder = { Text("숫자를 입력하세요") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester)
-            )
-        },
-        confirmButton = { TextButton(onClick = { onSave(text.toIntOrNull()?.takeIf { it >= 1 }) }) { Text("저장") } },
-        dismissButton = {
-            Row {
-                TextButton(onClick = { onSave(null) }) { Text("미지정") }
-                TextButton(onClick = onDismiss) { Text("취소") }
-            }
-        }
     )
 }
 
