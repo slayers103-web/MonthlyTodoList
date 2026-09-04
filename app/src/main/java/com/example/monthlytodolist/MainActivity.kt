@@ -43,6 +43,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -100,9 +101,10 @@ fun MonthlyTodoScreen() {
     val editable = month >= today || (month < today && historicalUnlocked)
     var todos by remember { mutableStateOf(repository.getMonthItems(month)) }
     var refresh by remember { mutableStateOf(0) }
-    var input by rememberSaveable { mutableStateOf("") }
     var menuExpanded by remember { mutableStateOf(false) }
     var editingTodo by remember { mutableStateOf<TodoItem?>(null) }
+    var deletingTodo by remember { mutableStateOf<TodoItem?>(null) }
+    var showAddDialog by remember { mutableStateOf(false) }
     var showNotificationHelp by remember { mutableStateOf(false) }
     var showInfo by remember { mutableStateOf(false) }
 
