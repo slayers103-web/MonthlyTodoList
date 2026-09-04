@@ -21,7 +21,12 @@ class TodoRepository(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val gson = Gson()
 
-    /** Advances monthly snapshots when the calendar month changes. */
+    /** Advances monthly snapshots only when the real calendar month changes.
+     *  Future months are never synchronized in real time. A future month is
+     *  finalized only when it becomes the current month, at which point the
+     *  previous month's final list is merged into it. Existing pre-added items
+     *  in that future month are preserved.
+     */
     fun prepareMonths(today: YearMonth = YearMonth.now()) {
         val records = getMonthRecords().toMutableMap()
         val lastActive = prefs.getString(KEY_LAST_ACTIVE_MONTH, null)
@@ -35,64 +40,60 @@ class TodoRepository(context: Context) {
             records[today.toString()] = MonthRecord()
         }
 
-        val knownLatest = records.keys
-            .mapNotNull { runCatching { YearMonth.parse(it) }.getOrNull() }
-            .maxOrNull()
-
-        // If the app was not opened for one or more month changes, create each
-        // missing month from the immediately preceding month's final snapshot.
-        val startMonth = lastActive ?: knownLatest
-        if (startMonth != null && startMonth < today) {
-            var cursor: YearMonth = startMonth.plusMonths(1)
-            var previous = records[startMonth.toString()]
+        if (lastActive != null && lastActive < today) {
+            // The app was last opened in an earlier month. Advance one month
+            // at a time so each month's final snapshot becomes the source for
+            // the next month. Existing future/pre-added items are merged, not
+            // overwritten.
+            var cursor = lastActive.plusMonths(1)
+            var previous = records[lastActive.toString()] ?: MonthRecord()
             while (cursor <= today) {
-                if (!records.containsKey(cursor.toString())) {
-                    val copied = MonthRecord(
-                        items = previous?.items.orEmpty(),
-                        completedIds = emptySet()
-                    )
-                    records[cursor.toString()] = copied
-                    previous = copied
-                } else {
-                    previous = records[cursor.toString()]
-                }
+                val key = cursor.toString()
+                val target = records[key] ?: MonthRecord()
+                val merged = mergeInheritedItems(previous, target)
+                records[key] = merged.copy(completedIds = target.completedIds)
+                previous = records[key]!!
                 cursor = cursor.plusMonths(1)
             }
-        } else if (!records.containsKey(today.toString())) {
+        } else if (lastActive == null) {
+            // First run after migration/upgrade: initialize the current month
+            // from the latest past snapshot, while preserving any pre-added
+            // current-month items.
             val previousMonth = records.keys
                 .mapNotNull { runCatching { YearMonth.parse(it) }.getOrNull() }
                 .filter { it < today }
                 .maxOrNull()
-            records[today.toString()] = MonthRecord(
-                items = previousMonth?.let { records[it.toString()]?.items }.orEmpty(),
-                completedIds = emptySet()
-            )
+            if (!records.containsKey(today.toString())) {
+                records[today.toString()] = MonthRecord(
+                    items = previousMonth?.let { records[it.toString()]?.items }.orEmpty(),
+                    completedIds = emptySet()
+                )
+            } else if (previousMonth != null) {
+                val target = records[today.toString()]!!
+                records[today.toString()] = mergeInheritedItems(
+                    records[previousMonth.toString()] ?: MonthRecord(), target
+                )
+            }
         }
-
-        // Keep future/current months synchronized with their immediately
-        // preceding month. This also handles the case where a future month
-        // already contains manually added items: inherited items are MERGED,
-        // never replaced.
-        val monthsToSync = records.keys
-            .mapNotNull { runCatching { YearMonth.parse(it) }.getOrNull() }
-            .filter { it >= today }
-            .sorted()
-        monthsToSync.forEach { ensureForwardInheritance(records, it) }
 
         saveMonthRecords(records)
         prefs.edit().putString(KEY_LAST_ACTIVE_MONTH, today.toString()).apply()
     }
 
+    private fun mergeInheritedItems(previous: MonthRecord, target: MonthRecord): MonthRecord {
+        val existingIds = target.items.map { it.id }.toSet()
+        val inherited = previous.items.filter {
+            it.id !in existingIds && it.id !in target.suppressedIds
+        }
+        return if (inherited.isEmpty()) target
+        else target.copy(items = target.items + inherited)
+    }
+
     fun getTodos(): List<TodoItem> = getMonthItems(YearMonth.now())
 
     fun getMonthItems(month: YearMonth): List<TodoItem> {
-        prepareMonths()
-        val today = YearMonth.now()
-        if (month >= today) {
-            val records = getMonthRecords().toMutableMap()
-            ensureForwardInheritance(records, month)
-            saveMonthRecords(records)
-        }
+        // Reading a month must never alter future data. Inheritance happens
+        // only in prepareMonths() when a month actually becomes current.
         return getMonthRecords()[month.toString()]?.items.orEmpty()
     }
 
@@ -204,27 +205,6 @@ class TodoRepository(context: Context) {
         }
     }
 
-    /**
-     * Merges the previous month's final list into the requested month.
-     * Existing items in the requested month are preserved, so items that were
-     * pre-added there are never lost. New items from the previous month start
-     * unchecked in the new month.
-     */
-    private fun ensureForwardInheritance(records: MutableMap<String, MonthRecord>, month: YearMonth) {
-        if (month <= YearMonth.now()) {
-            // The current month is also allowed to inherit from the previous
-            // month, but historical months must remain untouched.
-        }
-        val previousMonth = month.minusMonths(1)
-        val previous = records[previousMonth.toString()] ?: return
-        val target = records[month.toString()] ?: MonthRecord()
-        val existingIds = target.items.map { it.id }.toSet()
-        val inherited = previous.items.filter {
-            it.id !in existingIds && it.id !in target.suppressedIds
-        }
-        if (inherited.isEmpty()) return
-        records[month.toString()] = target.copy(items = target.items + inherited)
-    }
 
     private fun updateMonth(month: YearMonth, transform: (MonthRecord) -> MonthRecord) {
         val records = getMonthRecords().toMutableMap()

@@ -15,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -45,7 +46,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -68,7 +68,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import java.time.YearMonth
@@ -256,6 +261,19 @@ fun MonthlyTodoScreen() {
             Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .pointerInput(month) {
+                    var totalDrag = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { totalDrag = 0f },
+                        onHorizontalDrag = { _, dragAmount -> totalDrag += dragAmount },
+                        onDragEnd = {
+                            when {
+                                totalDrag < -80f -> currentMonthText = month.plusMonths(1).toString()
+                                totalDrag > 80f -> currentMonthText = month.minusMonths(1).toString()
+                            }
+                        }
+                    )
+                }
         ) {
             Column(
                 Modifier
@@ -280,14 +298,23 @@ fun MonthlyTodoScreen() {
                 }
             }
 
+            Text(
+                "매월 체크 항목",
+                fontSize = 20.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+            )
+
             Row(
-                Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.End
             ) {
+                val completed = todos.count { repository.isDone(month, it.id) }
                 Text(
-                    "매월 체크 항목",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f)
+                    "[$completed / ${todos.size} 완료]",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -299,13 +326,6 @@ fun MonthlyTodoScreen() {
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
-
-            val completed = todos.count { repository.isDone(month, it.id) }
-            Text(
-                "$completed / ${todos.size} 완료",
-                style = MaterialTheme.typography.labelLarge
-            )
-            Spacer(Modifier.height(6.dp))
 
             if (todos.isEmpty()) {
                 Card(
@@ -412,7 +432,7 @@ fun MonthlyTodoScreen() {
         }
 
         if (month < today) {
-            SmallFloatingActionButton(
+            FloatingActionButton(
                 onClick = {
                     if (historicalUnlocked) {
                         historicalUnlocked = false
@@ -564,6 +584,12 @@ private fun AddTodoDialog(
     onAdd: (String) -> Unit
 ) {
     var text by rememberSaveable { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        keyboardController?.show()
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("체크 항목 추가") },
@@ -573,7 +599,8 @@ private fun AddTodoDialog(
                 onValueChange = { text = it },
                 label = { Text("항목명") },
                 placeholder = { Text("체크할 항목을 입력하세요") },
-                singleLine = true
+                singleLine = true,
+                modifier = Modifier.focusRequester(focusRequester)
             )
         },
         confirmButton = {
@@ -595,6 +622,12 @@ private fun EditTodoDialog(
     onSave: (String) -> Unit
 ) {
     var text by rememberSaveable(initial) { mutableStateOf(initial) }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        keyboardController?.show()
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("체크 항목 수정") },
@@ -603,7 +636,8 @@ private fun EditTodoDialog(
                 value = text,
                 onValueChange = { text = it },
                 label = { Text("항목명") },
-                singleLine = true
+                singleLine = true,
+                modifier = Modifier.focusRequester(focusRequester)
             )
         },
         confirmButton = {
