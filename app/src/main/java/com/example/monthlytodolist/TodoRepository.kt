@@ -91,7 +91,31 @@ class TodoRepository(context: Context) {
 
     fun setDone(month: YearMonth, todoId: String, done: Boolean, allowHistoricalEdit: Boolean = false) {
         require(isEditableMonth(month) || allowHistoricalEdit) { "지난 달의 데이터는 수정할 수 없습니다." }
-        updateMonth(month) { record -> record.copy(completedIds = if (done) record.completedIds + todoId else record.completedIds - todoId) }
+        updateMonth(month) { record ->
+            val item = record.items.firstOrNull { it.id == todoId } ?: return@updateMonth record
+            val newCompletedIds = if (done) {
+                record.completedIds + todoId
+            } else {
+                record.completedIds - todoId
+            }
+
+            // Checking an item puts it at the bottom of the completed section
+            // (completion order). Unchecking puts it at the top of the pending section.
+            val remaining = record.items.filterNot { it.id == todoId }
+            val pending = remaining.filter { it.id !in newCompletedIds }.toMutableList()
+            val completed = remaining.filter { it.id in newCompletedIds }.toMutableList()
+
+            if (done) {
+                completed.add(item)
+            } else {
+                pending.add(0, item)
+            }
+
+            record.copy(
+                items = pending + completed,
+                completedIds = newCompletedIds
+            )
+        }
     }
 
     fun reorderTodo(month: YearMonth, todoId: String, targetIndexInSection: Int, done: Boolean, allowHistoricalEdit: Boolean = false) {
