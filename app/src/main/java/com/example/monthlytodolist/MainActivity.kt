@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.inputmethod.InputMethodManager
+import android.content.Context
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -35,14 +37,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
@@ -50,6 +54,9 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -64,6 +71,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -82,17 +90,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -100,6 +110,7 @@ import androidx.core.content.ContextCompat
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.abs
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -128,8 +139,12 @@ fun MonthlyTodoScreen() {
     var todos by remember { mutableStateOf(repository.getMonthItems(month)) }
     var refresh by remember { mutableStateOf(0) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var fontMenuExpanded by remember { mutableStateOf(false) }
+    var fontSize by remember { mutableFloatStateOf(repository.getFontSize()) }
     var editingTodo by remember { mutableStateOf<TodoItem?>(null) }
     var deletingTodo by remember { mutableStateOf<TodoItem?>(null) }
+    var numberTodo by remember { mutableStateOf<TodoItem?>(null) }
+    var selectionMode by remember { mutableStateOf<SelectionMode?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var showNotificationHelp by remember { mutableStateOf(false) }
     var showInfo by remember { mutableStateOf(false) }
@@ -193,15 +208,32 @@ fun MonthlyTodoScreen() {
                     containerColor = Color(0xFF00897B), titleContentColor = Color.White, actionIconContentColor = Color.White
                 ),
                 actions = {
-                    IconButton(onClick = { backupLauncher.launch("mtdl_backup.json") }) {
-                        Icon(painterResource(R.drawable.ic_backup_download), "데이터 백업")
-                    }
-                    IconButton(onClick = { restoreLauncher.launch(arrayOf("application/json", "text/*")) }) {
-                        Icon(painterResource(R.drawable.ic_restore_upload), "데이터 복원")
-                    }
+                    IconButton(onClick = {
+                        if (editable && todos.isNotEmpty()) selectionMode = SelectionMode.EDIT
+                        else Toast.makeText(context, "수정할 수 있는 항목이 없습니다.", Toast.LENGTH_SHORT).show()
+                    }) { Icon(Icons.Default.Edit, "항목 수정") }
+                    IconButton(onClick = {
+                        if (editable && todos.isNotEmpty()) selectionMode = SelectionMode.DELETE
+                        else Toast.makeText(context, "삭제할 수 있는 항목이 없습니다.", Toast.LENGTH_SHORT).show()
+                    }) { Icon(Icons.Default.Delete, "항목 삭제") }
                     Box {
                         IconButton(onClick = { menuExpanded = true }) { Icon(Icons.Default.MoreVert, "메뉴") }
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("항목 글씨 크기") },
+                                leadingIcon = { Icon(Icons.Default.Settings, null) },
+                                onClick = { menuExpanded = false; fontMenuExpanded = true }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("데이터 백업") },
+                                leadingIcon = { Icon(painterResource(R.drawable.ic_backup_download), null) },
+                                onClick = { menuExpanded = false; backupLauncher.launch("mtdl_backup_v3.json") }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("데이터 복원") },
+                                leadingIcon = { Icon(painterResource(R.drawable.ic_restore_upload), null) },
+                                onClick = { menuExpanded = false; restoreLauncher.launch(arrayOf("application/json", "text/*")) }
+                            )
                             DropdownMenuItem(
                                 text = { Text("알림 권한 설정") },
                                 leadingIcon = { Icon(Icons.Default.Notifications, null) },
@@ -217,6 +249,22 @@ fun MonthlyTodoScreen() {
                                 onClick = { menuExpanded = false; showInfo = true }
                             )
                         }
+                        DropdownMenu(expanded = fontMenuExpanded, onDismissRequest = { fontMenuExpanded = false }) {
+                            Column(Modifier.width(250.dp).padding(horizontal = 16.dp, vertical = 10.dp)) {
+                                Text("항목 글씨 크기", fontWeight = FontWeight.SemiBold)
+                                Text("${fontSize.toInt()}sp", style = MaterialTheme.typography.labelMedium)
+                                Slider(
+                                    value = fontSize,
+                                    onValueChange = { fontSize = it; repository.setFontSize(it) },
+                                    valueRange = 10f..30f,
+                                    steps = 19
+                                )
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("10sp", style = MaterialTheme.typography.labelSmall)
+                                    Text("30sp", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
                     }
                 }
             )
@@ -227,15 +275,8 @@ fun MonthlyTodoScreen() {
                 var totalX = 0f
                 detectHorizontalDragGestures(
                     onDragStart = { totalX = 0f },
-                    onHorizontalDrag = { change, dragAmount ->
-                        totalX += dragAmount
-                        change.consume()
-                    },
-                    onDragEnd = {
-                        if (kotlin.math.abs(totalX) > 90f) {
-                            if (totalX < 0f) moveMonth(1) else moveMonth(-1)
-                        }
-                    },
+                    onHorizontalDrag = { change, dragAmount -> totalX += dragAmount; change.consume() },
+                    onDragEnd = { if (abs(totalX) > 90f) { if (totalX < 0f) moveMonth(1) else moveMonth(-1) } },
                     onDragCancel = { totalX = 0f }
                 )
             }
@@ -246,8 +287,7 @@ fun MonthlyTodoScreen() {
                     val sign = monthDirection
                     (slideInHorizontally { fullWidth -> sign * fullWidth } + fadeIn()) togetherWith
                         (slideOutHorizontally { fullWidth -> -sign * fullWidth } + fadeOut())
-                },
-                label = "month transition"
+                }, label = "month transition"
             ) { animatedMonth ->
                 val animatedTodos = if (animatedMonth == month) todos else repository.getMonthItems(animatedMonth)
                 MonthContent(
@@ -258,18 +298,12 @@ fun MonthlyTodoScreen() {
                     historicalUnlocked = historicalUnlocked,
                     formatter = formatter,
                     repository = repository,
+                    fontSize = fontSize,
                     onPrevious = { moveMonth(-1) },
                     onNext = { moveMonth(1) },
-                    onToggle = { todo, done ->
-                        repository.setDone(animatedMonth, todo.id, done, historicalUnlocked)
-                        reload()
-                    },
-                    onEdit = { editingTodo = it },
-                    onDelete = { deletingTodo = it },
-                    onReorder = { todo, sectionDone, targetIndex ->
-                        repository.reorderTodo(animatedMonth, todo.id, targetIndex, sectionDone, historicalUnlocked)
-                        reload()
-                    }
+                    onToggle = { todo, done -> repository.setDone(animatedMonth, todo.id, done, historicalUnlocked); reload() },
+                    onNumber = { numberTodo = it },
+                    onReorder = { todo, sectionDone, targetIndex -> repository.reorderTodo(animatedMonth, todo.id, targetIndex, sectionDone, historicalUnlocked); reload() }
                 )
             }
 
@@ -279,25 +313,35 @@ fun MonthlyTodoScreen() {
                     modifier = Modifier.align(Alignment.BottomStart).padding(20.dp),
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                ) {
-                    Icon(if (historicalUnlocked) Icons.Default.LockOpen else Icons.Default.Lock, if (historicalUnlocked) "다시 잠그기" else "잠금 해제")
-                }
+                ) { Icon(if (historicalUnlocked) Icons.Default.LockOpen else Icons.Default.Lock, if (historicalUnlocked) "다시 잠그기" else "잠금 해제") }
             }
             if (editable && month >= today) {
-                FloatingActionButton(
-                    onClick = { showAddDialog = true },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)
-                ) { Icon(Icons.Default.Add, "체크 항목 추가") }
+                FloatingActionButton(onClick = { showAddDialog = true }, modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)) {
+                    Icon(Icons.Default.Add, "체크 항목 추가")
+                }
             }
         }
+    }
+
+    selectionMode?.let { mode ->
+        ItemSelectionDialog(
+            title = if (mode == SelectionMode.EDIT) "수정할 항목 선택" else "삭제할 항목 선택",
+            items = todos,
+            onDismiss = { selectionMode = null },
+            onSelect = { todo ->
+                selectionMode = null
+                if (mode == SelectionMode.EDIT) editingTodo = todo else deletingTodo = todo
+            }
+        )
     }
 
     editingTodo?.let { todo ->
         EditTodoDialog(
             initial = todo.text,
+            initialPriority = todo.priority,
             onDismiss = { editingTodo = null },
-            onSave = { newText ->
-                repository.updateTodo(month, todo.id, newText, historicalUnlocked)
+            onSave = { newText, priority ->
+                repository.updateTodo(month, todo.id, newText, priority, historicalUnlocked)
                 editingTodo = null
                 reload()
             }
@@ -306,17 +350,21 @@ fun MonthlyTodoScreen() {
     if (showAddDialog) {
         AddTodoDialog(
             onDismiss = { showAddDialog = false },
-            onAdd = { text -> repository.addTodo(month, text); showAddDialog = false; reload() }
+            onAdd = { text, priority -> repository.addTodo(month, text, priority); showAddDialog = false; reload() }
+        )
+    }
+    numberTodo?.let { todo ->
+        NumberInputDialog(
+            initial = todo.number,
+            onDismiss = { numberTodo = null },
+            onSave = { number -> repository.updateNumber(month, todo.id, number, historicalUnlocked); numberTodo = null; reload() }
         )
     }
     deletingTodo?.let { todo ->
         AlertDialog(
-            onDismissRequest = { deletingTodo = null },
-            title = { Text("체크 항목 삭제") },
+            onDismissRequest = { deletingTodo = null }, title = { Text("체크 항목 삭제") },
             text = { Text("‘${todo.text}’ 항목을 삭제하시겠습니까?\n삭제하면 현재 달의 목록에서 제거됩니다.") },
-            confirmButton = {
-                TextButton(onClick = { repository.deleteTodo(month, todo.id, historicalUnlocked); deletingTodo = null; reload() }) { Text("삭제") }
-            },
+            confirmButton = { TextButton(onClick = { repository.deleteTodo(month, todo.id, historicalUnlocked); deletingTodo = null; reload() }) { Text("삭제") } },
             dismissButton = { TextButton(onClick = { deletingTodo = null }) { Text("취소") } }
         )
     }
@@ -339,10 +387,38 @@ fun MonthlyTodoScreen() {
     if (showInfo) {
         AlertDialog(
             onDismissRequest = { showInfo = false }, title = { Text("MTDL") },
-            text = { Text("Monthly To-Do-List\n\n매월 체크 항목을 관리하고 완료 상태를 기록합니다.\n\n• 월별 데이터 자동 이어받기\n• 지난 달 기록 보존\n• 데이터 백업 및 복원") },
+            text = {
+                Text("Monthly To-Do-List\n\n매월 체크 항목을 관리하고 완료 상태를 기록합니다.\n\n• 월별 데이터 자동 이어받기\n• 완료/미완료 구역 및 체크 순서 정렬\n• 우선순위 지정 및 우선순위별 정렬\n• 항목 글씨 크기 조절\n• 항목별 숫자 기록\n• 롱프레스 드래그 정렬\n• 지난 달 기록 보존 및 잠시 잠금 해제\n• 데이터 백업 및 복원\n• 월말 미완료 알림")
+            },
             confirmButton = { TextButton(onClick = { showInfo = false }) { Text("확인") } }
         )
     }
+}
+
+enum class SelectionMode { EDIT, DELETE }
+
+@Composable
+private fun ItemSelectionDialog(title: String, items: List<TodoItem>, onDismiss: () -> Unit, onSelect: (TodoItem) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            LazyColumn(Modifier.fillMaxWidth().height(360.dp)) {
+                items(items, key = { it.id }) { todo ->
+                    TextButton(onClick = { onSelect(todo) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(todo.displayText(), Modifier.fillMaxWidth(), textAlign = TextAlign.Start)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("취소") } }
+    )
+}
+
+private fun TodoItem.displayText(): String = buildString {
+    if (priority != null) append("[${priority}] ")
+    append(text)
+    if (number != null) append("   #$number")
 }
 
 @Composable
@@ -354,11 +430,11 @@ private fun MonthContent(
     historicalUnlocked: Boolean,
     formatter: DateTimeFormatter,
     repository: TodoRepository,
+    fontSize: Float,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onToggle: (TodoItem, Boolean) -> Unit,
-    onEdit: (TodoItem) -> Unit,
-    onDelete: (TodoItem) -> Unit,
+    onNumber: (TodoItem) -> Unit,
     onReorder: (TodoItem, Boolean, Int) -> Unit
 ) {
     val pending = todos.filter { !repository.isDone(month, it.id) }
@@ -366,9 +442,9 @@ private fun MonthContent(
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onPrevious) { Icon(Icons.Default.ArrowBack, "이전 달") }
+            IconButton(onClick = onPrevious) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "이전 달") }
             Text(month.format(formatter), style = MaterialTheme.typography.titleLarge)
-            IconButton(onClick = onNext) { Icon(Icons.Default.ArrowForward, "다음 달") }
+            IconButton(onClick = onNext) { Icon(Icons.AutoMirrored.Filled.ArrowForward, "다음 달") }
         }
         Text("매월 체크 항목", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp))
         Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.End) {
@@ -403,28 +479,17 @@ private fun MonthContent(
                         item(key = "pending_header") { SectionHeader("미완료", pending.size) }
                         items(pending, key = { it.id }) { todo ->
                             ReorderableTodoRow(
-                                todo = todo, done = false, editable = editable, historicalUnlocked = historicalUnlocked,
-                                isDragging = draggedId == todo.id, dragOffset = dragOffset,
-                                onToggle = { onToggle(todo, it) }, onEdit = { onEdit(todo) }, onDelete = { onDelete(todo) },
+                                todo = todo, done = false, editable = editable, isDragging = draggedId == todo.id, dragOffset = dragOffset, fontSize = fontSize,
+                                onToggle = { onToggle(todo, it) }, onNumber = { onNumber(todo) },
                                 onDragStart = {
-                                    draggedId = todo.id
-                                    draggedSectionDone = false
-                                    dragOffset = 0f
+                                    draggedId = todo.id; draggedSectionDone = false; dragOffset = 0f
                                     val snapshot = pending.filter { it.id != todo.id }
                                     dragCenters = snapshot.associate { item -> item.id to (dragBounds[item.id]?.center?.y ?: 0f) }
                                     dropTargetIndex = pending.indexOf(todo)
                                 },
-                                onDrag = { amount ->
-                                    dragOffset += amount
-                                    updateDropTarget(pending, todo)
-                                },
-                                onDragEnd = {
-                                    onReorder(todo, false, dropTargetIndex ?: pending.indexOf(todo))
-                                    draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters = emptyMap(); dragBounds = emptyMap()
-                                },
-                                onDragCancel = {
-                                    draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters = emptyMap(); dragBounds = emptyMap()
-                                },
+                                onDrag = { amount -> dragOffset += amount; updateDropTarget(pending, todo) },
+                                onDragEnd = { onReorder(todo, false, dropTargetIndex ?: pending.indexOf(todo)); draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters = emptyMap(); dragBounds = emptyMap() },
+                                onDragCancel = { draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters = emptyMap(); dragBounds = emptyMap() },
                                 onBoundsChanged = { rect -> dragBounds = dragBounds + (todo.id to rect) }
                             )
                         }
@@ -433,34 +498,22 @@ private fun MonthContent(
                         item(key = "completed_header") { SectionHeader("완료", completed.size) }
                         items(completed, key = { it.id }) { todo ->
                             ReorderableTodoRow(
-                                todo = todo, done = true, editable = editable, historicalUnlocked = historicalUnlocked,
-                                isDragging = draggedId == todo.id, dragOffset = dragOffset,
-                                onToggle = { onToggle(todo, it) }, onEdit = { onEdit(todo) }, onDelete = { onDelete(todo) },
+                                todo = todo, done = true, editable = editable, isDragging = draggedId == todo.id, dragOffset = dragOffset, fontSize = fontSize,
+                                onToggle = { onToggle(todo, it) }, onNumber = { onNumber(todo) },
                                 onDragStart = {
-                                    draggedId = todo.id
-                                    draggedSectionDone = true
-                                    dragOffset = 0f
+                                    draggedId = todo.id; draggedSectionDone = true; dragOffset = 0f
                                     val snapshot = completed.filter { it.id != todo.id }
                                     dragCenters = snapshot.associate { item -> item.id to (dragBounds[item.id]?.center?.y ?: 0f) }
                                     dropTargetIndex = completed.indexOf(todo)
                                 },
-                                onDrag = { amount ->
-                                    dragOffset += amount
-                                    updateDropTarget(completed, todo)
-                                },
-                                onDragEnd = {
-                                    onReorder(todo, true, dropTargetIndex ?: completed.indexOf(todo))
-                                    draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters = emptyMap(); dragBounds = emptyMap()
-                                },
-                                onDragCancel = {
-                                    draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters = emptyMap(); dragBounds = emptyMap()
-                                },
+                                onDrag = { amount -> dragOffset += amount; updateDropTarget(completed, todo) },
+                                onDragEnd = { onReorder(todo, true, dropTargetIndex ?: completed.indexOf(todo)); draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters = emptyMap(); dragBounds = emptyMap() },
+                                onDragCancel = { draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters = emptyMap(); dragBounds = emptyMap() },
                                 onBoundsChanged = { rect -> dragBounds = dragBounds + (todo.id to rect) }
                             )
                         }
                     }
                 }
-
                 if (draggedId != null) {
                     val target = dropTargetIndex
                     val section = if (draggedSectionDone) completed else pending
@@ -472,10 +525,7 @@ private fun MonthContent(
                             target >= candidates.size -> dragBounds[candidates.last().id]?.bottom ?: 0f
                             else -> dragBounds[candidates[target].id]?.top ?: 0f
                         }
-                        Box(
-                            Modifier.fillMaxWidth().offset(y = with(density) { (y - 2f).toDp() }),
-                            contentAlignment = Alignment.TopCenter
-                        ) {
+                        Box(Modifier.fillMaxWidth().offset(y = with(density) { (y - 2f).toDp() })) {
                             Box(Modifier.fillMaxWidth().padding(horizontal = 4.dp).height(4.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp)))
                         }
                     }
@@ -499,20 +549,6 @@ private fun MonthContent(
 }
 
 @Composable
-private fun DropPlaceholder() {
-    Card(
-        Modifier.fillMaxWidth().padding(vertical = 3.dp).height(52.dp),
-        shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
-    ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("여기에 놓기", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-        }
-    }
-}
-
-@Composable
 private fun SectionHeader(title: String, count: Int) {
     Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
@@ -525,12 +561,11 @@ private fun ReorderableTodoRow(
     todo: TodoItem,
     done: Boolean,
     editable: Boolean,
-    historicalUnlocked: Boolean,
     isDragging: Boolean,
     dragOffset: Float,
+    fontSize: Float,
     onToggle: (Boolean) -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
+    onNumber: () -> Unit,
     onDragStart: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
@@ -538,9 +573,7 @@ private fun ReorderableTodoRow(
     onBoundsChanged: (Rect) -> Unit
 ) {
     Card(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp)
+        Modifier.fillMaxWidth().padding(vertical = 3.dp)
             .onGloballyPositioned { onBoundsChanged(it.boundsInParent()) }
             .graphicsLayer { translationY = if (isDragging) dragOffset else 0f }
             .shadow(if (isDragging) 12.dp else 0.dp, RoundedCornerShape(10.dp))
@@ -548,12 +581,8 @@ private fun ReorderableTodoRow(
                 if (editable) {
                     detectDragGesturesAfterLongPress(
                         onDragStart = { onDragStart() },
-                        onDrag = { change, amount ->
-                            change.consume()
-                            onDrag(amount.y)
-                        },
-                        onDragEnd = { onDragEnd() },
-                        onDragCancel = { onDragCancel() }
+                        onDrag = { change, amount -> change.consume(); onDrag(amount.y) },
+                        onDragEnd = { onDragEnd() }, onDragCancel = { onDragCancel() }
                     )
                 }
             },
@@ -563,43 +592,111 @@ private fun ReorderableTodoRow(
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = done, enabled = editable, onCheckedChange = onToggle)
-            Text(
-                todo.text,
+            Row(
                 Modifier.weight(1f).clickable(enabled = editable) { onToggle(!done) }.padding(horizontal = 6.dp, vertical = 10.dp),
-                color = if (editable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (editable) {
-                IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, "수정") }
-                IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "삭제") }
-            } else Icon(Icons.Default.Lock, "과거 데이터", modifier = Modifier.padding(horizontal = 12.dp))
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                todo.priority?.let {
+                    Text("[$it]", fontSize = fontSize.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 6.dp))
+                }
+                Text(todo.text, fontSize = fontSize.sp, color = if (editable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (todo.number != null) {
+                TextButton(onClick = onNumber, enabled = editable, modifier = Modifier.padding(horizontal = 0.dp)) { Text("#${todo.number}") }
+            } else {
+                TextButton(onClick = onNumber, enabled = editable, modifier = Modifier.padding(horizontal = 0.dp)) { Text("＋") }
+            }
+            if (!editable) Icon(Icons.Default.Lock, "과거 데이터", modifier = Modifier.padding(horizontal = 8.dp))
         }
     }
 }
 
 @Composable
-private fun AddTodoDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
+private fun AddTodoDialog(onDismiss: () -> Unit, onAdd: (String, Int?) -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
+    var priority by rememberSaveable { mutableStateOf<Int?>(null) }
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboardController?.show() }
     AlertDialog(
         onDismissRequest = onDismiss, title = { Text("체크 항목 추가") },
-        text = { OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("항목명") }, placeholder = { Text("체크할 항목을 입력하세요") }, singleLine = true, modifier = Modifier.focusRequester(focusRequester)) },
-        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onAdd(text.trim()) }) { Text("추가") } },
+        text = {
+            Column {
+                OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("항목명") }, placeholder = { Text("체크할 항목을 입력하세요") }, singleLine = true, modifier = Modifier.fillMaxWidth().focusRequester(focusRequester))
+                Spacer(Modifier.height(10.dp))
+                PrioritySelector(priority = priority, onPriorityChange = { priority = it })
+            }
+        },
+        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onAdd(text.trim(), priority) }) { Text("추가") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } }
     )
 }
 
 @Composable
-private fun EditTodoDialog(initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
-    var text by rememberSaveable(initial) { mutableStateOf(initial) }
+private fun EditTodoDialog(initial: String, initialPriority: Int?, onDismiss: () -> Unit, onSave: (String, Int?) -> Unit) {
+    var value by remember(initial) { mutableStateOf(TextFieldValue(initial, TextRange(initial.length))) }
+    var priority by remember(initialPriority) { mutableStateOf(initialPriority) }
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboardController?.show() }
     AlertDialog(
         onDismissRequest = onDismiss, title = { Text("체크 항목 수정") },
-        text = { OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("항목명") }, singleLine = true, modifier = Modifier.focusRequester(focusRequester)) },
-        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onSave(text.trim()) }) { Text("저장") } },
+        text = {
+            Column {
+                OutlinedTextField(value = value, onValueChange = { value = it }, label = { Text("항목명") }, singleLine = true, modifier = Modifier.fillMaxWidth().focusRequester(focusRequester))
+                Spacer(Modifier.height(10.dp))
+                PrioritySelector(priority = priority, onPriorityChange = { priority = it })
+            }
+        },
+        confirmButton = { TextButton(enabled = value.text.isNotBlank(), onClick = { onSave(value.text.trim(), priority) }) { Text("저장") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } }
+    )
+}
+
+@Composable
+private fun PrioritySelector(priority: Int?, onPriorityChange: (Int?) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedTextField(
+            value = priority?.toString() ?: "- (미지정)",
+            onValueChange = {}, readOnly = true, label = { Text("우선순위") }, singleLine = true,
+            modifier = Modifier.fillMaxWidth().clickable { expanded = true }
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("- (미지정)") }, onClick = { onPriorityChange(null); expanded = false })
+            (1..20).forEach { n -> DropdownMenuItem(text = { Text(n.toString()) }, onClick = { onPriorityChange(n); expanded = false }) }
+        }
+    }
+}
+
+@Composable
+private fun NumberInputDialog(initial: Int?, onDismiss: () -> Unit, onSave: (Int?) -> Unit) {
+    var text by remember(initial) { mutableStateOf(initial?.toString() ?: "") }
+    var expanded by remember { mutableStateOf(false) }
+    val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboardController?.show() }
+    AlertDialog(
+        onDismissRequest = onDismiss, title = { Text("숫자 기록") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text, onValueChange = { if (it.all(Char::isDigit) && it.length <= 6) text = it },
+                    label = { Text("숫자") }, placeholder = { Text("숫자를 입력하거나 목록에서 선택") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth().focusRequester(focusRequester)
+                )
+                Spacer(Modifier.height(8.dp))
+                Box {
+                    TextButton(onClick = { expanded = true }) { Text("숫자 목록에서 선택") }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        (0..20).forEach { n -> DropdownMenuItem(text = { Text(n.toString()) }, onClick = { text = n.toString(); expanded = false }) }
+                    }
+                }
+                TextButton(onClick = { text = "" }) { Text("숫자 기록 지우기") }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(text.toIntOrNull()) }) { Text("저장") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } }
     )
 }
