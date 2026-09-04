@@ -94,7 +94,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -567,7 +566,6 @@ private fun ReorderableTodoRow(
             Text(
                 todo.text,
                 Modifier.weight(1f).clickable(enabled = editable) { onToggle(!done) }.padding(horizontal = 6.dp, vertical = 10.dp),
-                textDecoration = if (done) TextDecoration.LineThrough else TextDecoration.None,
                 color = if (editable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (editable) {
