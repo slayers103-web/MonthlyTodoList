@@ -23,6 +23,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -81,29 +82,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -227,28 +223,21 @@ fun MonthlyTodoScreen() {
         }
     ) { padding ->
         Box(
-            Modifier.fillMaxSize().padding(padding).pointerInput(Unit) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                    var lastX = down.position.x
-                    var lastY = down.position.y
-                    var totalX = 0f
-                    var totalY = 0f
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull() ?: break
-                        if (!change.pressed) break
-                        val dx = change.position.x - lastX
-                        val dy = change.position.y - lastY
-                        totalX += dx
-                        totalY += dy
-                        lastX = change.position.x
-                        lastY = change.position.y
-                    }
-                    if (kotlin.math.abs(totalX) > 90f && kotlin.math.abs(totalX) > kotlin.math.abs(totalY) * 1.2f) {
-                        if (totalX < 0f) moveMonth(1) else moveMonth(-1)
-                    }
-                }
+            Modifier.fillMaxSize().padding(padding).pointerInput(month) {
+                var totalX = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { totalX = 0f },
+                    onHorizontalDrag = { change, dragAmount ->
+                        totalX += dragAmount
+                        change.consume()
+                    },
+                    onDragEnd = {
+                        if (kotlin.math.abs(totalX) > 90f) {
+                            if (totalX < 0f) moveMonth(1) else moveMonth(-1)
+                        }
+                    },
+                    onDragCancel = { totalX = 0f }
+                )
             }
         ) {
             AnimatedContent(
@@ -393,83 +382,102 @@ private fun MonthContent(
             }
         } else {
             val listState = rememberLazyListState()
-            val bounds = remember { mutableStateMapOf<String, Rect>() }
             var draggedId by remember { mutableStateOf<String?>(null) }
             var draggedSectionDone by remember { mutableStateOf(false) }
             var dragOffset by remember { mutableFloatStateOf(0f) }
             var dropTargetIndex by remember { mutableStateOf<Int?>(null) }
-            val dragCenters = remember { mutableStateMapOf<String, Float>() }
-            LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f)) {
-                if (pending.isNotEmpty()) {
-                    item(key = "pending_header") {
-                        SectionHeader("미완료", pending.size)
-                    }
-                    val pendingCandidates = pending.filter { it.id != draggedId }
-                    pending.forEach { todo ->
-                        val candidateIndex = pendingCandidates.indexOfFirst { it.id == todo.id }
-                        if (draggedId != null && !draggedSectionDone && dropTargetIndex == candidateIndex) {
-                            item(key = "drop_pending_$candidateIndex") { DropPlaceholder() }
-                        }
-                        item(key = todo.id) {
+            var dragCenters by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
+            var dragBounds by remember { mutableStateOf<Map<String, Rect>>(emptyMap()) }
+
+            fun updateDropTarget(section: List<TodoItem>, todo: TodoItem) {
+                val candidates = section.filter { it.id != todo.id }
+                val center = dragBounds[todo.id]?.center?.y?.plus(dragOffset) ?: return
+                val index = candidates.count { (dragCenters[it.id] ?: Float.POSITIVE_INFINITY) < center }
+                dropTargetIndex = index.coerceIn(0, candidates.size)
+            }
+
+            val density = LocalDensity.current
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    if (pending.isNotEmpty()) {
+                        item(key = "pending_header") { SectionHeader("미완료", pending.size) }
+                        items(pending, key = { it.id }) { todo ->
                             ReorderableTodoRow(
                                 todo = todo, done = false, editable = editable, historicalUnlocked = historicalUnlocked,
-                                isDragging = draggedId == todo.id, dragOffset = if (draggedId == todo.id) dragOffset else 0f,
-                                bounds = bounds,
+                                isDragging = draggedId == todo.id, dragOffset = dragOffset,
                                 onToggle = { onToggle(todo, it) }, onEdit = { onEdit(todo) }, onDelete = { onDelete(todo) },
                                 onDragStart = {
-                                    draggedId = todo.id; draggedSectionDone = false; dragOffset = 0f; dropTargetIndex = pending.indexOf(todo)
-                                    dragCenters.clear(); pending.filter { it.id != todo.id }.forEach { item -> bounds[item.id]?.center?.y?.let { dragCenters[item.id] = it } }
+                                    draggedId = todo.id
+                                    draggedSectionDone = false
+                                    dragOffset = 0f
+                                    val snapshot = pending.filter { it.id != todo.id }
+                                    dragCenters = snapshot.associate { item -> item.id to (dragBounds[item.id]?.center?.y ?: 0f) }
+                                    dropTargetIndex = pending.indexOf(todo)
                                 },
                                 onDrag = { amount ->
                                     dragOffset += amount
-                                    val center = bounds[todo.id]?.center?.y?.plus(dragOffset)
-                                    if (center != null) {
-                                        dropTargetIndex = pendingCandidates.indexOfFirst { center < (dragCenters[it.id] ?: Float.MAX_VALUE) }.let { if (it < 0) pendingCandidates.size else it }
-                                    }
+                                    updateDropTarget(pending, todo)
                                 },
-                                onDragEnd = { onReorder(todo, false, dropTargetIndex ?: pending.indexOf(todo)); draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters.clear() },
-                                onDragCancel = { draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters.clear() }
+                                onDragEnd = {
+                                    onReorder(todo, false, dropTargetIndex ?: pending.indexOf(todo))
+                                    draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters = emptyMap(); dragBounds = emptyMap()
+                                },
+                                onDragCancel = {
+                                    draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters = emptyMap(); dragBounds = emptyMap()
+                                },
+                                onBoundsChanged = { rect -> dragBounds = dragBounds + (todo.id to rect) }
                             )
                         }
                     }
-                    if (draggedId != null && !draggedSectionDone && dropTargetIndex == pendingCandidates.size) {
-                        item(key = "drop_pending_end") { DropPlaceholder() }
-                    }
-                }
-                if (completed.isNotEmpty()) {
-                    item(key = "completed_header") {
-                        SectionHeader("완료", completed.size)
-                    }
-                    val completedCandidates = completed.filter { it.id != draggedId }
-                    completed.forEach { todo ->
-                        val candidateIndex = completedCandidates.indexOfFirst { it.id == todo.id }
-                        if (draggedId != null && draggedSectionDone && dropTargetIndex == candidateIndex) {
-                            item(key = "drop_completed_$candidateIndex") { DropPlaceholder() }
-                        }
-                        item(key = todo.id) {
+                    if (completed.isNotEmpty()) {
+                        item(key = "completed_header") { SectionHeader("완료", completed.size) }
+                        items(completed, key = { it.id }) { todo ->
                             ReorderableTodoRow(
                                 todo = todo, done = true, editable = editable, historicalUnlocked = historicalUnlocked,
-                                isDragging = draggedId == todo.id, dragOffset = if (draggedId == todo.id) dragOffset else 0f,
-                                bounds = bounds,
+                                isDragging = draggedId == todo.id, dragOffset = dragOffset,
                                 onToggle = { onToggle(todo, it) }, onEdit = { onEdit(todo) }, onDelete = { onDelete(todo) },
                                 onDragStart = {
-                                    draggedId = todo.id; draggedSectionDone = true; dragOffset = 0f; dropTargetIndex = completed.indexOf(todo)
-                                    dragCenters.clear(); completed.filter { it.id != todo.id }.forEach { item -> bounds[item.id]?.center?.y?.let { dragCenters[item.id] = it } }
+                                    draggedId = todo.id
+                                    draggedSectionDone = true
+                                    dragOffset = 0f
+                                    val snapshot = completed.filter { it.id != todo.id }
+                                    dragCenters = snapshot.associate { item -> item.id to (dragBounds[item.id]?.center?.y ?: 0f) }
+                                    dropTargetIndex = completed.indexOf(todo)
                                 },
                                 onDrag = { amount ->
                                     dragOffset += amount
-                                    val center = bounds[todo.id]?.center?.y?.plus(dragOffset)
-                                    if (center != null) {
-                                        dropTargetIndex = completedCandidates.indexOfFirst { center < (dragCenters[it.id] ?: Float.MAX_VALUE) }.let { if (it < 0) completedCandidates.size else it }
-                                    }
+                                    updateDropTarget(completed, todo)
                                 },
-                                onDragEnd = { onReorder(todo, true, dropTargetIndex ?: completed.indexOf(todo)); draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters.clear() },
-                                onDragCancel = { draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters.clear() }
+                                onDragEnd = {
+                                    onReorder(todo, true, dropTargetIndex ?: completed.indexOf(todo))
+                                    draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters = emptyMap(); dragBounds = emptyMap()
+                                },
+                                onDragCancel = {
+                                    draggedId = null; dragOffset = 0f; dropTargetIndex = null; dragCenters = emptyMap(); dragBounds = emptyMap()
+                                },
+                                onBoundsChanged = { rect -> dragBounds = dragBounds + (todo.id to rect) }
                             )
                         }
                     }
-                    if (draggedId != null && draggedSectionDone && dropTargetIndex == completedCandidates.size) {
-                        item(key = "drop_completed_end") { DropPlaceholder() }
+                }
+
+                if (draggedId != null) {
+                    val target = dropTargetIndex
+                    val section = if (draggedSectionDone) completed else pending
+                    val candidates = section.filter { it.id != draggedId }
+                    if (target != null) {
+                        val y = when {
+                            candidates.isEmpty() -> dragBounds[draggedId]?.top ?: 0f
+                            target <= 0 -> dragBounds[candidates.first().id]?.top ?: 0f
+                            target >= candidates.size -> dragBounds[candidates.last().id]?.bottom ?: 0f
+                            else -> dragBounds[candidates[target].id]?.top ?: 0f
+                        }
+                        Box(
+                            Modifier.fillMaxWidth().offset(y = with(density) { (y - 2f).toDp() }),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            Box(Modifier.fillMaxWidth().padding(horizontal = 4.dp).height(4.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp)))
+                        }
                     }
                 }
             }
@@ -520,20 +528,20 @@ private fun ReorderableTodoRow(
     historicalUnlocked: Boolean,
     isDragging: Boolean,
     dragOffset: Float,
-    bounds: MutableMap<String, Rect>,
     onToggle: (Boolean) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onDragStart: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
-    onDragCancel: () -> Unit
+    onDragCancel: () -> Unit,
+    onBoundsChanged: (Rect) -> Unit
 ) {
     Card(
         Modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp)
-            .onGloballyPositioned { bounds[todo.id] = it.boundsInParent() }
+            .onGloballyPositioned { onBoundsChanged(it.boundsInParent()) }
             .graphicsLayer { translationY = if (isDragging) dragOffset else 0f }
             .shadow(if (isDragging) 12.dp else 0.dp, RoundedCornerShape(10.dp))
             .pointerInput(editable) {
