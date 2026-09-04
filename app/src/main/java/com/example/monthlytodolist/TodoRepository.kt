@@ -68,12 +68,12 @@ class TodoRepository(context: Context) {
         return item
     }
 
-    fun updateTodo(month: YearMonth, id: String, text: String, priority: Int?, allowHistoricalEdit: Boolean = false) {
+    fun updateTodo(month: YearMonth, id: String, text: String, priority: Int?, number1: Int?, allowHistoricalEdit: Boolean = false) {
         require(isEditableMonth(month) || allowHistoricalEdit) { "지난 달의 데이터는 수정할 수 없습니다." }
         val clean = text.trim()
         require(clean.isNotBlank()) { "체크 항목을 입력해 주세요." }
         updateMonth(month) { record ->
-            val updated = record.items.map { if (it.id == id) it.copy(text = clean, priority = priority) else it }
+            val updated = record.items.map { if (it.id == id) it.copy(text = clean, priority = priority, number1 = number1) else it }
             record.copy(items = orderItemsForSection(updated, record.completedIds, id, uncheckNewToTop = false))
         }
     }
