@@ -15,6 +15,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -41,7 +43,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.animateItem
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -85,6 +86,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -157,6 +159,8 @@ fun MonthlyTodoScreen() {
     var showInfo by remember { mutableStateOf(false) }
     var selectionMode by remember { mutableStateOf<String?>(null) }
     var monthDirection by remember { mutableStateOf(1) }
+    var moveAnimationKey by remember { mutableIntStateOf(0) }
+    var animatedTodoId by remember { mutableStateOf<String?>(null) }
 
     val formatter = remember { DateTimeFormatter.ofPattern("yyyy년 M월", Locale.KOREAN) }
 
@@ -309,11 +313,13 @@ fun MonthlyTodoScreen() {
                     fontSize = fontSize,
                     onPrevious = { moveMonth(-1) },
                     onNext = { moveMonth(1) },
-                    onToggle = { todo, done -> repository.setDone(animatedMonth, todo.id, done, historicalUnlocked); reload() },
+                    onToggle = { todo, done -> animatedTodoId = todo.id; moveAnimationKey++; repository.setDone(animatedMonth, todo.id, done, historicalUnlocked); reload() },
                     onNumber = { todo, slot -> if (selectionMode == null) numberTodo = todo to slot },
                     onEdit = { todo -> editingTodo = todo; selectionMode = null },
                     onDelete = { todo -> deletingTodo = todo; selectionMode = null },
                     selectionMode = selectionMode,
+                    animatedTodoId = animatedTodoId,
+                    moveAnimationKey = moveAnimationKey,
                     onSelect = { todo ->
                         when (selectionMode) {
                             "edit" -> { editingTodo = todo; selectionMode = null }
@@ -364,7 +370,7 @@ fun MonthlyTodoScreen() {
             title = if (slot == 1) "필요 숫자 기록" else "완료 숫자 기록",
             initial = if (slot == 1) todo.number1 else todo.number2,
             onDismiss = { numberTodo = null },
-            onSave = { number -> repository.updateNumber(month, todo.id, slot, number, historicalUnlocked); numberTodo = null; reload() }
+            onSave = { number -> animatedTodoId = todo.id; moveAnimationKey++; repository.updateNumber(month, todo.id, slot, number, historicalUnlocked); numberTodo = null; reload() }
         )
     }
     deletingTodo?.let { todo ->
@@ -426,6 +432,8 @@ private fun MonthContent(
     onEdit: (TodoItem) -> Unit,
     onDelete: (TodoItem) -> Unit,
     selectionMode: String?,
+    animatedTodoId: String?,
+    moveAnimationKey: Int,
     onSelect: (TodoItem) -> Unit,
     onReorder: (TodoItem, Boolean, Int) -> Unit
 ) {
@@ -443,7 +451,7 @@ private fun MonthContent(
             Text("[${completed.size} / ${todos.size} 완료]", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         val scale = (fontSize / 16f).coerceIn(0.625f, 1.875f)
-        Row(
+        Box(
             Modifier.fillMaxWidth()
                 .padding(bottom = (4f * scale).dp)
                 .height((34f * scale).dp)
@@ -451,9 +459,19 @@ private fun MonthContent(
                 .background(Color(0xFF7E57C2))
                 .border((1f * scale).dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f), RoundedCornerShape((10f * scale).dp))
         ) {
-            HeaderCell("항목", Modifier.weight(1f), fontSize, scale, dividerEnd = true)
-            HeaderCell("필요", Modifier.weight(0.2f), fontSize, scale, dividerEnd = true)
-            HeaderCell("완료", Modifier.weight(0.2f), fontSize, scale, dividerEnd = false)
+            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    Text("항목", fontSize = fontSize.sp, fontWeight = FontWeight.SemiBold, color = Color.White, textAlign = TextAlign.Center)
+                }
+                Box(Modifier.width((1f * scale).dp).fillMaxHeight().background(Color.White.copy(alpha = 0.6f)))
+                Box(Modifier.width((68f * scale).dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    Text("필요", fontSize = fontSize.sp, fontWeight = FontWeight.SemiBold, color = Color.White, textAlign = TextAlign.Center)
+                }
+                Box(Modifier.width((1f * scale).dp).fillMaxHeight().background(Color.White.copy(alpha = 0.6f)))
+                Box(Modifier.width((68f * scale).dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    Text("완료", fontSize = fontSize.sp, fontWeight = FontWeight.SemiBold, color = Color.White, textAlign = TextAlign.Center)
+                }
+            }
         }
 
         if (todos.isEmpty()) {
@@ -487,7 +505,7 @@ private fun MonthContent(
                                 todo = todo, done = false, editable = editable, isDragging = draggedId == todo.id, dragOffset = dragOffset, fontSize = fontSize,
                                 onToggle = { onToggle(todo, it) }, onNumber = { slot -> onNumber(todo, slot) },
                                 onEdit = { onEdit(todo) }, onDelete = { onDelete(todo) },
-                                selectionMode = selectionMode, onSelect = { onSelect(todo) },
+                                selectionMode = selectionMode, animatedMove = animatedTodoId == todo.id, animationKey = moveAnimationKey, onSelect = { onSelect(todo) },
                                 onDragStart = {
                                     draggedId = todo.id; draggedSectionDone = false; dragOffset = 0f
                                     val snapshot = pending.filter { it.id != todo.id }
@@ -508,7 +526,7 @@ private fun MonthContent(
                                 todo = todo, done = true, editable = editable, isDragging = draggedId == todo.id, dragOffset = dragOffset, fontSize = fontSize,
                                 onToggle = { onToggle(todo, it) }, onNumber = { slot -> onNumber(todo, slot) },
                                 onEdit = { onEdit(todo) }, onDelete = { onDelete(todo) },
-                                selectionMode = selectionMode, onSelect = { onSelect(todo) },
+                                selectionMode = selectionMode, animatedMove = animatedTodoId == todo.id, animationKey = moveAnimationKey, onSelect = { onSelect(todo) },
                                 onDragStart = {
                                     draggedId = todo.id; draggedSectionDone = true; dragOffset = 0f
                                     val snapshot = completed.filter { it.id != todo.id }
@@ -558,33 +576,6 @@ private fun MonthContent(
 }
 
 @Composable
-private fun HeaderCell(
-    title: String,
-    modifier: Modifier,
-    fontSize: Float,
-    scale: Float,
-    dividerEnd: Boolean
-) {
-    Box(
-        modifier = modifier.fillMaxHeight(),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            title, fontSize = fontSize.sp, fontWeight = FontWeight.SemiBold,
-            color = Color.White, textAlign = TextAlign.Center
-        )
-        if (dividerEnd) {
-            Box(
-                Modifier.align(Alignment.CenterEnd)
-                    .fillMaxHeight()
-                    .width((1f * scale).dp)
-                    .background(Color.White.copy(alpha = 0.6f))
-            )
-        }
-    }
-}
-
-@Composable
 private fun SectionHeader(title: String, count: Int) {
     Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
@@ -597,7 +588,7 @@ private fun ReorderableTodoRow(
     todo: TodoItem, done: Boolean, editable: Boolean, isDragging: Boolean, dragOffset: Float, fontSize: Float,
     onToggle: (Boolean) -> Unit, onNumber: (Int) -> Unit,
     onEdit: () -> Unit, onDelete: () -> Unit,
-    selectionMode: String?, onSelect: () -> Unit,
+    selectionMode: String?, animatedMove: Boolean, animationKey: Int, onSelect: () -> Unit,
     onDragStart: () -> Unit, onDrag: (Float) -> Unit, onDragEnd: () -> Unit, onDragCancel: () -> Unit,
     onBoundsChanged: (Rect) -> Unit
 ) {
@@ -612,12 +603,18 @@ private fun ReorderableTodoRow(
     // 숫자 필요값이 있으면 완료 여부는 숫자 비교로 자동 결정하고,
     // 필요값이 없는 항목만 체크박스로 수동 관리합니다.
     val canCheck = todo.number1 == null
+    val moveAnim = remember { Animatable(0f) }
+    LaunchedEffect(animationKey, animatedMove) {
+        if (animatedMove && animationKey > 0) {
+            moveAnim.snapTo(18f)
+            moveAnim.animateTo(0f, animationSpec = tween(350))
+        }
+    }
     Card(
         Modifier.fillMaxWidth().padding(vertical = (3f * scale).dp)
-            .animateItem()
             .clickable(enabled = selectionMode != null) { onSelect() }
             .onGloballyPositioned { onBoundsChanged(it.boundsInParent()) }
-            .graphicsLayer { translationY = if (isDragging) dragOffset else 0f }
+            .graphicsLayer { translationY = (if (isDragging) dragOffset else 0f) + moveAnim.value }
             .shadow(if (isDragging) 12.dp else 0.dp, RoundedCornerShape((10f * scale).dp))
             .pointerInput(editable, selectionMode) {
                 if (editable && selectionMode == null) detectDragGesturesAfterLongPress(
@@ -630,7 +627,7 @@ private fun ReorderableTodoRow(
         border = BorderStroke((1f * scale).dp, if (selectionMode != null) Color(0xFF7E57C2) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
         colors = CardDefaults.cardColors(containerColor = if (isDragging) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
     ) {
-        Box(Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
             Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
                 Row(
                     Modifier.weight(1f)
@@ -658,7 +655,10 @@ private fun ReorderableTodoRow(
                     }
                 }
                 VerticalDividerLine(scale)
-                Box(Modifier.weight(0.2f).height(IntrinsicSize.Min), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier.width((68f * scale).dp).height(IntrinsicSize.Min),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
                         todo.number1?.toString() ?: "＋",
                         fontSize = (fontSize * 0.9f).sp,
@@ -670,15 +670,23 @@ private fun ReorderableTodoRow(
                     TextButton(
                         onClick = { onNumber(2) },
                         enabled = editable,
-                        modifier = Modifier.weight(0.2f)
+                        modifier = Modifier.width((68f * scale).dp)
                     ) {
                         Text(todo.number2?.toString() ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number2 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
-                    Box(Modifier.weight(0.2f), contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier.width((68f * scale).dp).height(IntrinsicSize.Min),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(todo.number2?.toString() ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number2 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
+            }
+            if (selectionMode != null) {
+                Box(
+                    Modifier.fillMaxSize().clickable { onSelect() }
+                )
             }
         }
     }
@@ -782,9 +790,7 @@ private fun EditTodoDialog(
 
 @Composable
 private fun NumberInputDialog(title: String, initial: Int?, onDismiss: () -> Unit, onSave: (Int?) -> Unit) {
-    var text by remember(initial) {
-        mutableStateOf(TextFieldValue(initial?.toString() ?: "", TextRange((initial?.toString() ?: "").length)))
-    }
+    var text by remember(initial) { mutableStateOf(TextFieldValue(initial?.toString() ?: "", TextRange((initial?.toString() ?: "").length))) }
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     fun save() { onSave(text.text.toIntOrNull()) }
@@ -795,9 +801,7 @@ private fun NumberInputDialog(title: String, initial: Int?, onDismiss: () -> Uni
         text = {
             OutlinedTextField(
                 value = text,
-                onValueChange = { value ->
-                    if (value.text.all(Char::isDigit) && value.text.length <= 6) text = value
-                },
+                onValueChange = { if (it.text.all(Char::isDigit) && it.text.length <= 6) text = it },
                 label = { Text("숫자") },
                 placeholder = { Text("숫자를 입력하세요") },
                 singleLine = true,
