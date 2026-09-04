@@ -48,6 +48,7 @@ class TodoRepository(context: Context) {
         val existingIds = target.items.map { it.id }.toSet()
         val inherited = previous.items
             .filter { it.id !in existingIds && it.id !in target.suppressedIds }
+            .map { it.copy(number = null) }
         val inheritedIds = inherited.map { it.id }.toSet()
         val targetNew = target.items.filter { it.id !in inheritedIds }
         return target.copy(
