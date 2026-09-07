@@ -63,7 +63,7 @@ class TodoRepository(context: Context) {
 
     fun getMonthItems(month: YearMonth): List<TodoItem> = getMonthRecords()[month.toString()]?.items.orEmpty()
 
-    fun addTodo(month: YearMonth, text: String, priority: Int? = null, number1: Int? = null): TodoItem {
+    fun addTodo(month: YearMonth, text: String, priority: Int? = null, number1: Double? = null): TodoItem {
         require(isEditableMonth(month)) { "지난 달의 데이터는 수정할 수 없습니다." }
         val clean = text.trim()
         require(clean.isNotBlank()) { "체크 항목을 입력해 주세요." }
@@ -72,7 +72,7 @@ class TodoRepository(context: Context) {
         return item
     }
 
-    fun updateTodo(month: YearMonth, id: String, text: String, priority: Int?, number1: Int?, allowHistoricalEdit: Boolean = false) {
+    fun updateTodo(month: YearMonth, id: String, text: String, priority: Int?, number1: Double?, allowHistoricalEdit: Boolean = false) {
         require(isEditableMonth(month) || allowHistoricalEdit) { "지난 달의 데이터는 수정할 수 없습니다." }
         val clean = text.trim()
         require(clean.isNotBlank()) { "체크 항목을 입력해 주세요." }
@@ -85,7 +85,7 @@ class TodoRepository(context: Context) {
         }
     }
 
-    fun updateNumber(month: YearMonth, id: String, numberSlot: Int, number: Int?, allowHistoricalEdit: Boolean = false) {
+    fun updateNumber(month: YearMonth, id: String, numberSlot: Int, number: Double?, allowHistoricalEdit: Boolean = false) {
         require(isEditableMonth(month) || allowHistoricalEdit) { "지난 달의 데이터는 수정할 수 없습니다." }
         updateMonth(month) { record ->
             val updated = record.items.map {
@@ -197,7 +197,7 @@ class TodoRepository(context: Context) {
                 val itemJson = itemElement.asJsonObject
                 val item = gson.fromJson(itemJson, TodoItem::class.java)
                 if (itemJson.has("number") && !itemJson.has("number2")) {
-                    item.copy(number2 = itemJson.get("number")?.takeUnless { it.isJsonNull }?.asInt)
+                    item.copy(number2 = itemJson.get("number")?.takeUnless { it.isJsonNull }?.asDouble)
                 } else item
             }
             val completed = recordJson.getAsJsonArray("completedIds")?.map { it.asString }?.toSet().orEmpty()
@@ -249,7 +249,7 @@ class TodoRepository(context: Context) {
                     val item = gson.fromJson(itemJson, TodoItem::class.java)
                     // v4.2's single number field becomes number2 in v4.3.
                     if (itemJson.has("number") && !itemJson.has("number2")) {
-                        item.copy(number2 = itemJson.get("number")?.takeUnless { it.isJsonNull }?.asInt)
+                        item.copy(number2 = itemJson.get("number")?.takeUnless { it.isJsonNull }?.asDouble)
                     } else item
                 }
                 val completed = recordJson.getAsJsonArray("completedIds")?.map { it.asString }?.toSet().orEmpty()
@@ -279,8 +279,8 @@ data class TodoItem(
     val text: String,
     val createdMonth: String = YearMonth.now().toString(),
     val priority: Int? = null,
-    val number1: Int? = null,
-    val number2: Int? = null
+    val number1: Double? = null,
+    val number2: Double? = null
 )
 data class MonthRecord(val items: List<TodoItem> = emptyList(), val completedIds: Set<String> = emptySet(), val suppressedIds: Set<String> = emptySet())
 data class BackupDataV3(val version: Int = 3, val months: Map<String, MonthRecord> = emptyMap())

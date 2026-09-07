@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import android.content.Context
+import java.math.BigDecimal
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -408,11 +409,27 @@ fun MonthlyTodoScreen() {
     }
 }
 
+private fun isDecimalInput(value: String): Boolean {
+    if (value.isEmpty()) return true
+    if (value.length > 12) return false
+    if (value.count { it == '.' } > 1) return false
+    return value.all { it.isDigit() || it == '.' }
+}
+
+private fun parseDecimal(value: String): Double? {
+    val clean = value.trim().removeSuffix(".")
+    if (clean.isEmpty() || clean == ".") return null
+    return clean.toDoubleOrNull()?.takeIf { it >= 0 }
+}
+
+private fun formatNumber(value: Double): String =
+    BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
+
 private fun TodoItem.displayText(): String = buildString {
     if (priority != null) append("[$priority] ")
     append(text)
-    if (number1 != null) append("   필요 $number1")
-    if (number2 != null) append("   완료 $number2")
+    if (number1 != null) append("   필요 ${formatNumber(number1)}")
+    if (number2 != null) append("   완료 ${formatNumber(number2)}")
 }
 
 @Composable
@@ -660,7 +677,7 @@ private fun ReorderableTodoRow(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        todo.number1?.toString() ?: "＋",
+                        todo.number1?.let(::formatNumber) ?: "＋",
                         fontSize = (fontSize * 0.9f).sp,
                         color = if (todo.number1 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -672,14 +689,14 @@ private fun ReorderableTodoRow(
                         enabled = editable,
                         modifier = Modifier.width((68f * scale).dp)
                     ) {
-                        Text(todo.number2?.toString() ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number2 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(todo.number2?.let(::formatNumber) ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number2 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
                     Box(
                         Modifier.width((68f * scale).dp).height(IntrinsicSize.Min),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(todo.number2?.toString() ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number2 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(todo.number2?.let(::formatNumber) ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number2 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -698,7 +715,7 @@ private fun VerticalDividerLine(scale: Float) {
 }
 
 @Composable
-private fun AddTodoDialog(onDismiss: () -> Unit, onAdd: (String, Int?, Int?) -> Unit) {
+private fun AddTodoDialog(onDismiss: () -> Unit, onAdd: (String, Int?, Double?) -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
     var priorityText by rememberSaveable { mutableStateOf("") }
     var number1Text by rememberSaveable { mutableStateOf("") }
@@ -708,7 +725,7 @@ private fun AddTodoDialog(onDismiss: () -> Unit, onAdd: (String, Int?, Int?) -> 
     val keyboardController = LocalSoftwareKeyboardController.current
     fun save() {
         if (text.isNotBlank()) {
-            onAdd(text.trim(), priorityText.toIntOrNull()?.takeIf { it >= 1 }, number1Text.toIntOrNull())
+            onAdd(text.trim(), priorityText.toIntOrNull()?.takeIf { it >= 1 }, parseDecimal(number1Text))
         }
     }
     LaunchedEffect(Unit) { textFocus.requestFocus(); keyboardController?.show() }
@@ -734,9 +751,9 @@ private fun AddTodoDialog(onDismiss: () -> Unit, onAdd: (String, Int?, Int?) -> 
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
-                    value = number1Text, onValueChange = { if (it.all(Char::isDigit) && it.length <= 6) number1Text = it },
+                    value = number1Text, onValueChange = { if (isDecimalInput(it)) number1Text = it },
                     label = { Text("필요 숫자") }, placeholder = { Text("숫자를 입력하세요") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { save() }),
                     modifier = Modifier.fillMaxWidth().focusRequester(number1Focus)
                 )
@@ -751,13 +768,13 @@ private fun AddTodoDialog(onDismiss: () -> Unit, onAdd: (String, Int?, Int?) -> 
 private fun EditTodoDialog(
     initial: String,
     initialPriority: Int?,
-    initialNumber1: Int?,
+    initialNumber1: Double?,
     onDismiss: () -> Unit,
-    onSave: (String, Int?, Int?) -> Unit
+    onSave: (String, Int?, Double?) -> Unit
 ) {
     var value by remember(initial) { mutableStateOf(TextFieldValue(initial, TextRange(initial.length))) }
     var priorityText by remember(initialPriority) { mutableStateOf(initialPriority?.toString() ?: "") }
-    var number1Text by remember(initialNumber1) { mutableStateOf(initialNumber1?.toString() ?: "") }
+    var number1Text by remember(initialNumber1) { mutableStateOf(initialNumber1?.let(::formatNumber) ?: "") }
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboardController?.show() }
@@ -777,23 +794,23 @@ private fun EditTodoDialog(
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
-                    value = number1Text, onValueChange = { if (it.all(Char::isDigit) && it.length <= 6) number1Text = it },
+                    value = number1Text, onValueChange = { if (isDecimalInput(it)) number1Text = it },
                     label = { Text("필요 숫자") }, placeholder = { Text("숫자를 입력하세요") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth()
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth()
                 )
             }
         },
-        confirmButton = { TextButton(enabled = value.text.isNotBlank(), onClick = { onSave(value.text.trim(), priorityText.toIntOrNull()?.takeIf { it >= 1 }, number1Text.toIntOrNull()) }) { Text("저장") } },
+        confirmButton = { TextButton(enabled = value.text.isNotBlank(), onClick = { onSave(value.text.trim(), priorityText.toIntOrNull()?.takeIf { it >= 1 }, parseDecimal(number1Text)) }) { Text("저장") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } }
     )
 }
 
 @Composable
-private fun NumberInputDialog(title: String, initial: Int?, onDismiss: () -> Unit, onSave: (Int?) -> Unit) {
-    var text by remember(initial) { mutableStateOf(TextFieldValue(initial?.toString() ?: "", TextRange((initial?.toString() ?: "").length))) }
+private fun NumberInputDialog(title: String, initial: Double?, onDismiss: () -> Unit, onSave: (Double?) -> Unit) {
+    var text by remember(initial) { mutableStateOf(TextFieldValue(initial?.let(::formatNumber) ?: "", TextRange((initial?.let(::formatNumber) ?: "").length))) }
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    fun save() { onSave(text.text.toIntOrNull()) }
+    fun save() { onSave(parseDecimal(text.text)) }
     LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboardController?.show() }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -801,11 +818,11 @@ private fun NumberInputDialog(title: String, initial: Int?, onDismiss: () -> Uni
         text = {
             OutlinedTextField(
                 value = text,
-                onValueChange = { if (it.text.all(Char::isDigit) && it.text.length <= 6) text = it },
+                onValueChange = { if (isDecimalInput(it.text)) text = it },
                 label = { Text("숫자") },
                 placeholder = { Text("숫자를 입력하세요") },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { save() }),
                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester)
             )
