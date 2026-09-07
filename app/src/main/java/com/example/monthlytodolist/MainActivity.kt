@@ -37,7 +37,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -100,7 +99,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInParent
@@ -115,6 +113,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -122,6 +121,7 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -454,8 +454,10 @@ private fun MonthContent(
     onSelect: (TodoItem) -> Unit,
     onReorder: (TodoItem, Boolean, Int) -> Unit
 ) {
-    val pending = todos.filter { !repository.isDone(month, it.id) }
-    val completed = todos.filter { repository.isDone(month, it.id) }
+    // Read the completion set once per composition. This avoids repeated repository lookups per row.
+    val completedIds = repository.getCompletedIds(month)
+    val pending = todos.filter { it.id !in completedIds }
+    val completed = todos.filter { it.id in completedIds }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -630,12 +632,15 @@ private fun ReorderableTodoRow(
     Card(
         Modifier.fillMaxWidth().padding(vertical = (3f * scale).dp)
             .clickable(enabled = selectionMode != null) { onSelect() }
-            .onGloballyPositioned {
-                // Bounds are only needed for drag/drop calculations. Tracking every row on every
-                // scroll frame causes state writes and recomposition of the whole list.
-                if (isDragging) onBoundsChanged(it.boundsInParent())
-            }
-            .graphicsLayer { translationY = (if (isDragging) dragOffset else 0f) + moveAnim.value }
+            .then(
+                if (isDragging) {
+                    Modifier.onGloballyPositioned { onBoundsChanged(it.boundsInParent()) }
+                } else {
+                    Modifier
+                }
+            )
+            // Placement-only translation is cheaper than a graphics layer for ordinary rows.
+            .offset { IntOffset(0, ((if (isDragging) dragOffset else 0f) + moveAnim.value).roundToInt()) }
             .shadow(if (isDragging) 12.dp else 0.dp, RoundedCornerShape((10f * scale).dp))
             .pointerInput(editable, selectionMode) {
                 if (editable && selectionMode == null) detectDragGesturesAfterLongPress(
@@ -648,8 +653,8 @@ private fun ReorderableTodoRow(
         border = BorderStroke((1f * scale).dp, if (selectionMode != null) Color(0xFF7E57C2) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
         colors = CardDefaults.cardColors(containerColor = if (isDragging) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
     ) {
-        Box(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+        // Fixed/minimal row sizing avoids expensive intrinsic measurement during scrolling.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(
                     Modifier.weight(1f)
                         .clickable(enabled = editable && canCheck && selectionMode == null) { onToggle(!done) }
@@ -677,7 +682,7 @@ private fun ReorderableTodoRow(
                 }
                 VerticalDividerLine(scale)
                 Box(
-                    Modifier.width((68f * scale).dp).height(IntrinsicSize.Min),
+                    Modifier.width((68f * scale).dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -697,7 +702,7 @@ private fun ReorderableTodoRow(
                     }
                 } else {
                     Box(
-                        Modifier.width((68f * scale).dp).height(IntrinsicSize.Min),
+                        Modifier.width((68f * scale).dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(todo.number2?.let(::formatNumber) ?: "＋", fontSize = (fontSize * 0.9f).sp, color = if (todo.number2 != null) numberColor else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -709,7 +714,6 @@ private fun ReorderableTodoRow(
                     Modifier.fillMaxSize().clickable { onSelect() }
                 )
             }
-        }
     }
 }
 

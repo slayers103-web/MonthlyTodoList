@@ -139,6 +139,7 @@ class TodoRepository(context: Context) {
     }
 
     fun isDone(month: YearMonth, todoId: String): Boolean = getMonthRecords()[month.toString()]?.completedIds?.contains(todoId) == true
+    fun getCompletedIds(month: YearMonth): Set<String> = getMonthRecords()[month.toString()]?.completedIds.orEmpty()
     fun isEditableMonth(month: YearMonth, today: YearMonth = YearMonth.now()): Boolean = month >= today
 
     fun getFontSize(): Float = prefs.getFloat(KEY_FONT_SIZE, 16f)
