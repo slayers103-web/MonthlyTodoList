@@ -12,6 +12,8 @@ import java.util.UUID
 class TodoRepository(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val gson = Gson()
+    // Avoid reparsing the entire JSON store on every row during Compose recomposition/scroll.
+    private var recordsCache: Map<String, MonthRecord>? = null
 
     fun prepareMonths(today: YearMonth = YearMonth.now()) {
         val records = getMonthRecords().toMutableMap()
@@ -238,7 +240,8 @@ class TodoRepository(context: Context) {
     }
 
     private fun getMonthRecords(): Map<String, MonthRecord> {
-        val json = prefs.getString(KEY_MONTHS, null) ?: return emptyMap()
+        recordsCache?.let { return it }
+        val json = prefs.getString(KEY_MONTHS, null) ?: return emptyMap<String, MonthRecord>().also { recordsCache = it }
         return runCatching {
             val root = JsonParser.parseString(json).asJsonObject
             root.entrySet().associate { (monthKey, element) ->
@@ -256,9 +259,12 @@ class TodoRepository(context: Context) {
                 val suppressed = recordJson.getAsJsonArray("suppressedIds")?.map { it.asString }?.toSet().orEmpty()
                 monthKey to MonthRecord(items, completed, suppressed)
             }
-        }.getOrElse { emptyMap() }
+        }.getOrElse { emptyMap() }.also { recordsCache = it }
     }
-    private fun saveMonthRecords(values: Map<String, MonthRecord>) { prefs.edit().putString(KEY_MONTHS, gson.toJson(values)).apply() }
+    private fun saveMonthRecords(values: Map<String, MonthRecord>) {
+        recordsCache = values.toMap()
+        prefs.edit().putString(KEY_MONTHS, gson.toJson(values)).apply()
+    }
     private inline fun <reified T> load(key: String): T? {
         val json = prefs.getString(key, null) ?: return null
         return runCatching { gson.fromJson<T>(json, object : TypeToken<T>() {}.type) }.getOrNull()

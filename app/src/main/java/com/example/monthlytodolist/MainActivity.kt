@@ -298,8 +298,8 @@ fun MonthlyTodoScreen() {
                 targetState = month,
                 transitionSpec = {
                     val sign = monthDirection
-                    (slideInHorizontally { fullWidth -> sign * fullWidth } + fadeIn()) togetherWith
-                        (slideOutHorizontally { fullWidth -> -sign * fullWidth } + fadeOut())
+                    (slideInHorizontally(animationSpec = tween(220)) { fullWidth -> sign * fullWidth }) togetherWith
+                        (slideOutHorizontally(animationSpec = tween(220)) { fullWidth -> -sign * fullWidth })
                 }, label = "month transition"
             ) { animatedMonth ->
                 val animatedTodos = if (animatedMonth == month) todos else repository.getMonthItems(animatedMonth)
@@ -630,7 +630,11 @@ private fun ReorderableTodoRow(
     Card(
         Modifier.fillMaxWidth().padding(vertical = (3f * scale).dp)
             .clickable(enabled = selectionMode != null) { onSelect() }
-            .onGloballyPositioned { onBoundsChanged(it.boundsInParent()) }
+            .onGloballyPositioned {
+                // Bounds are only needed for drag/drop calculations. Tracking every row on every
+                // scroll frame causes state writes and recomposition of the whole list.
+                if (isDragging) onBoundsChanged(it.boundsInParent())
+            }
             .graphicsLayer { translationY = (if (isDragging) dragOffset else 0f) + moveAnim.value }
             .shadow(if (isDragging) 12.dp else 0.dp, RoundedCornerShape((10f * scale).dp))
             .pointerInput(editable, selectionMode) {
